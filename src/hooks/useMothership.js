@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { registerPlugin } from "../capacitor-core-shim.js";
+import { P2PCorePlugin } from "../plugins.js";
 import motherShip from "../mothership.js";
-
-const P2PCore = registerPlugin('P2PCore');
 
 // ── Mother Ship connection: connect on login, event listeners, disconnect ────
 // Returns { mothershipConnected, mothershipStatus, mothershipConnecting,
@@ -84,7 +82,7 @@ export function useMothership(me, nodeConnected) {
     const setup = async () => {
       try {
         // Connection events from P2PCore's mothershipConnectionChanged
-        const connHandle = P2PCore.addListener('mothershipConnectionChanged', (event) => {
+        const connHandle = P2PCorePlugin.addListener('mothershipConnectionChanged', (event) => {
           if (cleanedUp) return;
           const type = event?.type;
           if (type === "connected") {
@@ -102,7 +100,7 @@ export function useMothership(me, nodeConnected) {
         });
 
         // Incoming DM events from P2PCore's dmReceived
-        const dmHandle = P2PCore.addListener('dmReceived', (event) => {
+        const dmHandle = P2PCorePlugin.addListener('dmReceived', (event) => {
           if (cleanedUp) return;
           if (event?.source === "mothership") {
             console.log("[Echo] Mother Ship DM for conversation", event?.conversationId);

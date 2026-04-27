@@ -373,6 +373,7 @@ export default function VideosFeed({ p2p, me, onCompose, isActive }) {
     } catch(_) {}
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   // ── Initial load ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!p2p) return;
@@ -454,6 +455,7 @@ export default function VideosFeed({ p2p, me, onCompose, isActive }) {
     pullDistance.current = 0;
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   // ── Refresh when tab becomes active ────────────────────────────────────────
   useEffect(() => {
     if (isActive && wasActiveRef.current === false && videos.length > 0) {

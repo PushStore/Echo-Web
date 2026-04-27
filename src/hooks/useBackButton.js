@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 // ── Back-button modal/page navigation stack ──────────────────────────────────
 // Manages Android hardware back button behavior:
@@ -84,7 +84,7 @@ export function useBackButton({ tab, setTab, viewingProfile, setViewingProfile, 
     let removeListener;
     const setup = async () => {
       try {
-        const { App: CapApp } = await import("../capacitor-app-shim.js");
+        const { App: CapApp } = await import("@capacitor/app");
         const listener = await CapApp.addListener("backButton", handleBack);
         removeListener = () => listener.remove();
       } catch(_) {

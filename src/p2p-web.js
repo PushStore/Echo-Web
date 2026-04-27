@@ -9,9 +9,8 @@ const LS_KEYPAIR   = "echo_web_keypair";
 
 // ── Module-level state ─────────────────────────────────────────────────
 let _connected    = false;
-let _nodeUrl      = "";   // base URL the user entered (e.g. "http://192.168.1.5")
-let _socialUrl    = "";   // _nodeUrl + ":6881"
-let _relayUrl     = "";   // _nodeUrl + ":6882"
+let _socialUrl    = "";   // base URL + ":6881"
+let _relayUrl     = "";   // base URL + ":6882"
 let _myProfile    = null; // cached profile object from localStorage
 let _pollTimer    = null; // DM polling interval ID
 let _publicKey    = "";
@@ -157,20 +156,6 @@ async function relayPost(path, body = {}) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`[WebBridge] Relay POST ${path} failed (${res.status}): ${text}`);
-  }
-  const ct = res.headers.get("content-type") || "";
-  if (ct.includes("application/json")) return await res.json();
-  return { status: res.status };
-}
-
-async function relayDelete(path) {
-  ensureConnected();
-  const url = new URL(path, _relayUrl).toString();
-  console.log("[WebBridge] RELAY DELETE", url);
-  const res = await fetch(url, { method: "DELETE" });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`[WebBridge] Relay DELETE ${path} failed (${res.status}): ${text}`);
   }
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return await res.json();
@@ -804,7 +789,6 @@ export const P2PCore = {
 
     // Save connection
     _connected  = true;
-    _nodeUrl    = base;
     _socialUrl  = social;
     _relayUrl   = relay;
 
@@ -917,7 +901,6 @@ export const P2PCore = {
 
   async identityGetStatus() {
     console.log("[WebBridge] identityGetStatus — not fully implemented on web");
-    const profile = loadProfile();
     return {
       verified: false,
       keyCount: _publicKey ? 1 : 0,

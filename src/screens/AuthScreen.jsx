@@ -71,6 +71,7 @@ export default function AuthScreen({ onLogin }) {
 
   // On mount: check for existing keypair — auto-login if found
   // If password is set, go to locked screen instead
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const check = async () => {
       // Auto-activate web bridge if there's persisted state
@@ -106,7 +107,7 @@ export default function AuthScreen({ onLogin }) {
     let removeListener = null;
     const setup = async () => {
       try {
-        const { App: CapApp } = await import("../capacitor-app-shim.js");
+        const { App: CapApp } = await import("@capacitor/app");
         const listener = await CapApp.addListener("backButton", () => {
           setMode(prevMode => {
             if (prevMode === "signup" || prevMode === "nodesetup" || prevMode === "storage") {
@@ -448,8 +449,8 @@ export default function AuthScreen({ onLogin }) {
       <AuthInput label="Node address (e.g. 192.168.1.100)" inputRef={nodeRef} />
       {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
       <button onClick={doConnectNode} disabled={nodeLoading} style={{
-        width:"100%", border:"none", borderRadius:28, padding:"15px 0", marginTop:8,
-        background:C.surface, border:`1px solid ${C.border}`,
+        width:"100%", borderRadius:28, padding:"15px 0", marginTop:8,
+        background:C.surface,
         color:C.text, fontWeight:700, fontSize:16, cursor:"pointer",
         opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
       }}>{nodeLoading ? "Connecting…" : "Connect Manually"}</button>

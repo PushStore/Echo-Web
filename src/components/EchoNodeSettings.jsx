@@ -12,6 +12,7 @@ export default function EchoNodeSettings({ p2p }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!p2p) return;
     // Restore saved URL from localStorage as fallback

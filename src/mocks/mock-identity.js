@@ -1,5 +1,5 @@
 // mock-identity.js — Identity & profile mock methods
-import { _profile, _users, setProfile, clearProfile } from "./mock-state.js";
+import { _profile, setProfile, clearProfile } from "./mock-state.js";
 
 export async function getMyProfile() {
   if (!_profile) return { exists: false };

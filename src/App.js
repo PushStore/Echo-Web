@@ -20,7 +20,6 @@ import ComposeModal         from "./screens/ComposeModal.jsx";
 import MarketplaceScreen    from "./screens/MarketplaceScreen.jsx";
 import MarketplacePublish   from "./screens/MarketplacePublish.jsx";
 import GroupListScreen      from "./screens/GroupListScreen.jsx";
-import StoriesScreen        from "./screens/StoriesScreen.jsx";
 import CallsScreen          from "./screens/CallsScreen.jsx";
 import SettingsScreen        from "./screens/SettingsScreen.jsx";
 
@@ -34,7 +33,7 @@ export default function App() {
   const [tab,            setTab]            = useState("home");
   const [composing,      setComposing]      = useState(false);
   const [showMarketplacePublish, setShowMarketplacePublish] = useState(false);
-  const [showNav,        setShowNav]        = useState(true);
+  const [showNav]                            = useState(true);
   const [viewingProfile, setViewingProfile] = useState(null);
   const [following,      setFollowing]      = useState([]);
   const [exitPrompt,     setExitPrompt]     = useState(false);
@@ -46,7 +45,7 @@ export default function App() {
   const { nodeConnected, nodeStatus } = useConnectionStatus(me);
   const {
     mothershipConnected, mothershipStatus,
-    triggerMothershipFallback, handleDisconnectMothership, disconnectOnLogout,
+    handleDisconnectMothership, disconnectOnLogout,
   } = useMothership(me, nodeConnected);
 
   const { pushModal, popModal, switchTab, handleUserClick, navStack, modalStack } = useBackButton({
@@ -251,7 +250,7 @@ export default function App() {
               </button>
               <button onClick={async () => {
                 setExitPrompt(false);
-                try { const { App: CapApp } = await import("./capacitor-app-shim.js"); await CapApp.exitApp(); }
+                try { const { App: CapApp } = await import("@capacitor/app"); await CapApp.exitApp(); }
                 catch(_) { window.close(); }
               }} style={{ flex:1, background:`linear-gradient(90deg,${C.accentDark},${C.accent})`, border:"none", borderRadius:24, padding:"12px 0", color:"#000", fontWeight:800, fontSize:15, cursor:"pointer" }}>
                 Yes

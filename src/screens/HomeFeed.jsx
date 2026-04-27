@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { C } from "../theme.js";
 import EchoLogo from "../components/EchoLogo.jsx";
-import Avatar from "../components/Avatar.jsx";
 import PostCard from "../components/PostCard.jsx";
 import sharePost from "../utils/sharePost.js";
 
@@ -13,7 +12,7 @@ export default function HomeFeed({ posts, setPosts, me, onAvatarClick, p2p }) {
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing,  setRefreshing]  = useState(false);
-  const [following,   setFollowing]   = useState([]);
+  const [,          setFollowing]   = useState([]);
   const [globalMuted, setGlobalMuted] = useState(false);
   const [shareMsg,    setShareMsg]    = useState(false);
 
@@ -181,6 +180,7 @@ export default function HomeFeed({ posts, setPosts, me, onAvatarClick, p2p }) {
   };
 
   // ── Initial load ────────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (hadCacheOnMount.current) {
       // Cached content exists — show immediately, don't reload
@@ -209,12 +209,6 @@ export default function HomeFeed({ posts, setPosts, me, onAvatarClick, p2p }) {
     }
   }, [posts]);
 
-  // ── Logo tap — scroll to top + refresh ────────────────────────────────────
-  const handleLogoTap = () => {
-    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
-    loadFeed();
-  };
-
   // ── Pull-to-refresh ────────────────────────────────────────────────────────
   const handleRefresh = async () => { setRefreshing(true); setNewPostsCount(0); pendingNewIdsRef.current = new Set(); await loadFeed(true); setRefreshing(false); };
   const onTouchStart = (e) => { if (scrollRef.current?.scrollTop === 0) touchStartY.current = e.touches[0].clientY; };
@@ -227,6 +221,7 @@ export default function HomeFeed({ posts, setPosts, me, onAvatarClick, p2p }) {
   const onTouchEnd = () => { if (pullDistance.current > 80) handleRefresh(); touchStartY.current = 0; pullDistance.current = 0; };
 
   // ── Lazy load on scroll ────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const onScroll = useCallback((e) => {
     if (loadingMore) return;
     const el = e.currentTarget;

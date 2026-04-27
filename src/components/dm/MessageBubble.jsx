@@ -17,12 +17,6 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function formatFileSize(bytes) {
-  if (!bytes || bytes < 1024) return bytes ? bytes + " B" : "";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-}
-
 function getFileExtension(fileName) {
   if (!fileName) return "";
   const parts = fileName.split(".");
@@ -203,6 +197,7 @@ export default function MessageBubble({
   const bubbleBg    = msg.isOutgoing ? C.accent    : C.bgSecondary;
   const bubbleColor = msg.isOutgoing ? "#000"      : C.text;
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleMediaClick = useCallback((e) => {
     if (messageSelectMode) {
       onToggleSelect(msg.id);
@@ -264,7 +259,7 @@ export default function MessageBubble({
           >
             <img
               src={msg.imageData}
-              alt="Shared photo"
+              alt=""
               style={{
                 maxWidth: "100%", maxHeight: 320,
                 borderRadius: 14, objectFit: "cover", display: "block",

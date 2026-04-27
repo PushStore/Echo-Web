@@ -3,6 +3,7 @@ import { C } from "../theme.js";
 
 // ── Sheet wrapper — registers with App's modal stack for back button ──────────
 export default function Sheet({ show, onClose, onModalOpen, onModalClose, title, showClose, children }) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (show) {
       onModalOpen?.(onClose);

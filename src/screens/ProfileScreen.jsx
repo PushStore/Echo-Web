@@ -25,7 +25,7 @@ export default function ProfileScreen({
   const [loading,      setLoading]      = useState(true);
   const [loadingMore,  setLoadingMore]  = useState(false);
   const [hasMore,      setHasMore]      = useState(true);
-  const [cursor,       setCursor]       = useState(0);
+  const [,           setCursor]       = useState(0);
   const [counts,       setCounts]       = useState({ posts:0, media:0, likes:0, bookmarks:0 });
   const [followers,    setFollowers]    = useState(0);
   const [followingCnt, setFollowingCnt] = useState(0);
@@ -83,6 +83,7 @@ export default function ProfileScreen({
   }, [p2p, isMyProfile, viewingProfile?.userId]);
 
   // ── Load first page ─────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const loadPage = useCallback(async (reset = false) => {
     if (!p2p) return;
     const isFirst = reset || posts.length === 0;
@@ -156,6 +157,7 @@ export default function ProfileScreen({
     setLoadingMore(false);
   }, [p2p, activeTab, isMyProfile, me.userId, viewingProfile?.userId]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   // Reload on tab change or when viewingProfile changes
   useEffect(() => {
     setPosts([]);
@@ -165,6 +167,7 @@ export default function ProfileScreen({
     checkFollowingStatus();
   }, [p2p, activeTab, isMyProfile, me.userId, viewingProfile?.userId]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   // ── Refresh when tab becomes active (e.g. after posting from home) ─────────
   useEffect(() => {
     if (isActive && wasActiveRef.current === false && posts.length > 0) {

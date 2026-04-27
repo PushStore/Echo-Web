@@ -32,7 +32,7 @@ function BleSettings() {
 
   const handleStopScan = async () => {
     try {
-      const result = await BleMesh.stopScan();
+      await BleMesh.stopScan();
       setScanning(false);
       // Refresh mesh status after stopping
       const status = await BleMesh.getMeshStatus();
@@ -163,7 +163,7 @@ export default function SettingsScreen({ me, p2p, onLogout, onUpdateProfile, onG
   // Pick image helper
   const pickImage = async () => {
     try {
-      const { Camera, CameraResultType, CameraSource } = await import("../capacitor-camera-shim.js");
+      const { Camera, CameraResultType, CameraSource } = await import("@capacitor/camera");
       const photo = await Camera.getPhoto({
         resultType: CameraResultType.DataUrl, source: CameraSource.Photos,
         quality: 70, allowEditing: false,

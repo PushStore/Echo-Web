@@ -318,7 +318,7 @@ export function isConnected() {
   return _connected;
 }
 
-export default {
+const motherShipWebClient = {
   connect,
   disconnect,
   getStatus,
@@ -329,3 +329,5 @@ export default {
   isConnected,
   DEFAULT_MOTHERSHIP_URL,
 };
+
+export default motherShipWebClient;

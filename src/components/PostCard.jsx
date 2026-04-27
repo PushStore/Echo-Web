@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { C, fmt, Btn, IcoThumbUp, IcoThumbDown, IcoRetweet, IcoComment, IcoShare, IcoBookmark, IcoBar, IcoEye } from "../theme.js";
+import { C, fmt, Btn, IcoThumbUp, IcoThumbDown, IcoRetweet, IcoComment, IcoShare, IcoBookmark, IcoEye } from "../theme.js";
 import Avatar from "./Avatar.jsx";
 import { resolveVideoUrl } from "../services/videoBlobCache.js";
 

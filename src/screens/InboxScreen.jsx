@@ -1,7 +1,6 @@
 // File: src/screens/InboxScreen.jsx
 import { useState, useEffect, useCallback } from "react";
 import { C } from "../theme.js";
-import EchoLogo from "../components/EchoLogo.jsx";
 import UserPicker from "../components/UserPicker.jsx";
 import ConversationList from "../components/dm/ConversationList.jsx";
 import ChatView from "../components/dm/ChatView.jsx";

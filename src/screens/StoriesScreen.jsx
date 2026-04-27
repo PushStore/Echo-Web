@@ -54,6 +54,7 @@ function StoryViewer({ storyFeed, viewingUserIdx, viewingStoryIdx, onNext, onPre
   const story = userStories[viewingStoryIdx] || {};
 
   // Auto-advance timer (before early return to satisfy rules-of-hooks)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!userStories.length) return;
     setTimeLeft(STORY_DURATION);
@@ -80,7 +81,6 @@ function StoryViewer({ storyFeed, viewingUserIdx, viewingStoryIdx, onNext, onPre
   if (!userStories.length || viewingStoryIdx >= userStories.length) return null;
 
   const user = story.user || {};
-  const totalStories = userStories.length;
   const hoursLeft = story.expiresAt ? Math.max(0, Math.round((story.expiresAt - Date.now()) / 3600000)) : 24;
   const progressPct = ((STORY_DURATION - timeLeft) / STORY_DURATION) * 100;
 

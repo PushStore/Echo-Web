@@ -4,6 +4,7 @@ export default function Avatar({ src, seed, size = 42, style = {}, onClick }) {
   return (
     <img
       src={src || `https://api.dicebear.com/7.x/thumbs/svg?seed=${seed}`}
+      alt=""
       onClick={onClick}
       style={{
         width:size, height:size, borderRadius:"50%",

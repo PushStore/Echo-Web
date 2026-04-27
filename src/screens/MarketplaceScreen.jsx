@@ -129,6 +129,7 @@ export default function MarketplaceScreen({ p2p, me, onAvatarClick, onPublishCli
     setLoading(false);
   }, [p2p, searchQuery, activeCategory]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { handleSearch(); }, [activeCategory]);
 
   return (

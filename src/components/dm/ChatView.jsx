@@ -77,6 +77,7 @@ export default function ChatView({ conversation, onBack, p2p }) {
   });
 
   // FIX #6: Notify App.js that a DM chat is open so hardware back button closes chat first
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     window.__echoChatOpen = true;
     window.__echoChatOnBack = () => {
@@ -104,7 +105,7 @@ export default function ChatView({ conversation, onBack, p2p }) {
     let removeCapListener = null;
     (async () => {
       try {
-        const { App: CapApp } = await import("../../capacitor-app-shim.js");
+        const { App: CapApp } = await import("@capacitor/app");
         const listener = await CapApp.addListener("backButton", handler);
         removeCapListener = () => listener.remove();
       } catch {}
