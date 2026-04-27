@@ -158,6 +158,60 @@ export default function AuthScreen({ onLogin }) {
     setNodeLoading(false);
   };
 
+  /**
+   * Ensure we have a node connection — same flow as doAutoConnect.
+   * On native, the P2P plugin handles this. On web:
+   *   1. Try saved node URL
+   *   2. Connect to Mother Ship -> request nearby node -> connect to it
+   * Returns true if connected, throws if not.
+   */
+  const ensureNodeConnection = async () => {
+    // On native, the plugin manages node connectivity
+    if (window?.Capacitor?.isNativePlatform?.()) return true;
+
+    // On web, activate the bridge module first
+    await activateWebBridge();
+
+    // Try reconnecting to saved node
+    const savedUrl = localStorage.getItem("echo_web_node_url") || localStorage.getItem("echo_node_url");
+    if (savedUrl) {
+      try {
+        console.log("[Auth] Trying saved node:", savedUrl);
+        const result = await p2pBridge.connectToEchoNode({ url: savedUrl });
+        if (result.connected) {
+          console.log("[Auth] Reconnected to saved node");
+          setNodeStatus(result);
+          setNodeUrl(savedUrl);
+          return true;
+        }
+        console.warn("[Auth] Saved node unreachable");
+      } catch (e) {
+        console.warn("[Auth] Saved node reconnect failed:", e.message);
+      }
+    }
+
+    // Connect to Mother Ship and request a nearby node
+    console.log("[Auth] Connecting to Mother Ship for node assignment...");
+    const msResult = await motherShip.connect("web_signup");
+    if (msResult.connected) {
+      await new Promise(r => setTimeout(r, 1000));
+      const nodeResult = await motherShip.requestNode();
+      if (nodeResult.success && nodeResult.nodeUrl) {
+        console.log("[Auth] Mother Ship assigned node:", nodeResult.nodeUrl);
+        const connectResult = await p2pBridge.connectToEchoNode({ url: nodeResult.nodeUrl });
+        if (connectResult.connected) {
+          setNodeStatus(connectResult);
+          setNodeUrl(nodeResult.nodeUrl);
+          localStorage.setItem("echo_node_url", nodeResult.nodeUrl);
+          localStorage.setItem("echo_web_node_url", nodeResult.nodeUrl);
+          return true;
+        }
+      }
+    }
+
+    throw new Error("Could not connect to any Echo Node. Check your internet connection or try again later.");
+  };
+
   const doCreate = async () => {
     const name   = nameRef.current?.value.trim() || "";
     const handle = handleRef.current?.value.trim().replace(/[@\s]/g, "") || "";
@@ -174,21 +228,13 @@ export default function AuthScreen({ onLogin }) {
     if (pass !== pass2)    { setError("Passwords don't match."); return; }
     setError(""); setLoading(true);
     try {
-      // Activate web bridge on web platform so signup goes to real node.
-      // Only activate if there's a saved node connection — otherwise keep
-      // using the mock so signup works offline (profile saved locally).
-      const hasNode = (() => {
-        try { return !!localStorage.getItem("echo_web_node_url") || !!localStorage.getItem("echo_node_url"); } catch (_) { return false; }
-      })();
-      if (hasNode) {
-        await activateWebBridge();
+      // Ensure we have a real node connection (same as native flow)
+      if (!window?.Capacitor?.isNativePlatform?.()) {
+        await ensureNodeConnection();
       }
 
-      // checkHandleAvailable requires a node connection — skip if offline
-      if (hasNode) {
-        const avail = await p2pBridge.checkHandleAvailable({ handle });
-        if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
-      }
+      const avail = await p2pBridge.checkHandleAvailable({ handle });
+      if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
       const result = await p2pBridge.setupProfile({ name, handle });
       if (result.success) {
         if (pass.length > 0) await savePassword(pass);
@@ -209,12 +255,9 @@ export default function AuthScreen({ onLogin }) {
   const doSignIn = async () => {
     setError(""); setLoading(true);
     try {
-      // Activate web bridge if there's a saved node connection
-      const hasNode = (() => {
-        try { return !!localStorage.getItem("echo_web_node_url") || !!localStorage.getItem("echo_node_url"); } catch (_) { return false; }
-      })();
-      if (hasNode) {
-        await activateWebBridge();
+      // Ensure we have a real node connection (same as native flow)
+      if (!window?.Capacitor?.isNativePlatform?.()) {
+        await ensureNodeConnection();
       }
       const result = await p2pBridge.getMyProfile();
       if (result.exists) {
@@ -247,56 +290,13 @@ export default function AuthScreen({ onLogin }) {
   const doAutoConnect = async () => {
     setError(""); setNodeLoading(true);
     try {
-      // Activate web bridge first
-      await activateWebBridge();
-
-      // Try to get saved node URL first
-      const savedUrl = localStorage.getItem("echo_web_node_url");
-      if (savedUrl) {
-        console.log("[Auth] Found saved node URL, reconnecting:", savedUrl);
-        const result = await p2pBridge.connectToEchoNode({ url: savedUrl });
-        if (result.connected) {
-          setNodeStatus(result);
-          setNodeUrl(savedUrl);
-          setNodeLoading(false);
-          return;
-        }
-        console.warn("[Auth] Saved node unreachable, trying Mother Ship…");
-      }
-
-      // Connect to Mother Ship and request a nearby node
-      console.log("[Auth] Requesting node from Mother Ship…");
-      const msResult = await motherShip.connect("web_auto");
-      console.log("[Auth] Mother Ship result:", msResult);
-
-      if (msResult.connected) {
-        // Wait a moment for connection to stabilize
-        await new Promise(r => setTimeout(r, 1000));
-
-        // Request nearby node
-        const nodeResult = await motherShip.requestNode();
-        console.log("[Auth] Node assignment:", nodeResult);
-
-        if (nodeResult.success && nodeResult.nodeUrl) {
-          const nodeUrl = nodeResult.nodeUrl;
-          console.log("[Auth] Connecting to assigned node:", nodeUrl);
-          const connectResult = await p2pBridge.connectToEchoNode({ url: nodeUrl });
-          if (connectResult.connected) {
-            setNodeStatus(connectResult);
-            setNodeUrl(nodeUrl);
-            localStorage.setItem("echo_node_url", nodeUrl);
-            setNodeLoading(false);
-            return;
-          }
-        }
-      }
-
-      setError("Could not auto-connect. Mother Ship may be unavailable. Try manual node setup below.");
+      await ensureNodeConnection();
+      setNodeLoading(false);
     } catch(e) {
       console.error("[Auth] Auto-connect error:", e);
-      setError("Auto-connect failed: " + (e.message || "Unknown error") + ". Try manual setup.");
+      setError(e.message || "Auto-connect failed. Try manual node setup below.");
+      setNodeLoading(false);
     }
-    setNodeLoading(false);
   };
 
   const Back = () => (
