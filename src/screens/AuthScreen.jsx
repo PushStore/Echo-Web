@@ -174,11 +174,21 @@ export default function AuthScreen({ onLogin }) {
     if (pass !== pass2)    { setError("Passwords don't match."); return; }
     setError(""); setLoading(true);
     try {
-      // Activate web bridge on web platform so signup goes to real node
-      await activateWebBridge();
+      // Activate web bridge on web platform so signup goes to real node.
+      // Only activate if there's a saved node connection — otherwise keep
+      // using the mock so signup works offline (profile saved locally).
+      const hasNode = (() => {
+        try { return !!localStorage.getItem("echo_web_node_url") || !!localStorage.getItem("echo_node_url"); } catch (_) { return false; }
+      })();
+      if (hasNode) {
+        await activateWebBridge();
+      }
 
-      const avail = await p2pBridge.checkHandleAvailable({ handle });
-      if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
+      // checkHandleAvailable requires a node connection — skip if offline
+      if (hasNode) {
+        const avail = await p2pBridge.checkHandleAvailable({ handle });
+        if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
+      }
       const result = await p2pBridge.setupProfile({ name, handle });
       if (result.success) {
         if (pass.length > 0) await savePassword(pass);
@@ -199,8 +209,13 @@ export default function AuthScreen({ onLogin }) {
   const doSignIn = async () => {
     setError(""); setLoading(true);
     try {
-      // Activate web bridge on web platform
-      await activateWebBridge();
+      // Activate web bridge if there's a saved node connection
+      const hasNode = (() => {
+        try { return !!localStorage.getItem("echo_web_node_url") || !!localStorage.getItem("echo_node_url"); } catch (_) { return false; }
+      })();
+      if (hasNode) {
+        await activateWebBridge();
+      }
       const result = await p2pBridge.getMyProfile();
       if (result.exists) {
         onLogin({ name:result.name, handle:result.handle, avatar:result.avatar, banner:result.banner||null, userId:result.userId });
