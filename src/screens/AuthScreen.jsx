@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { C } from "../theme.js";
 import EchoLogo from "../components/EchoLogo.jsx";
-import { p2pBridge } from "../p2p-bridge.js";
+import { p2pBridge, activateWebBridge, autoActivateWebBridge } from "../p2p-bridge.js";
 import StorageSelectionScreen from "./StorageSelectionScreen.jsx";
+import motherShip from "../mothership.js";
 
 // ── Password helpers (stored locally in localStorage — never sent anywhere) ──
 const PASS_KEY = "echo_local_pin";
@@ -72,6 +73,9 @@ export default function AuthScreen({ onLogin }) {
   // If password is set, go to locked screen instead
   useEffect(() => {
     const check = async () => {
+      // Auto-activate web bridge if there's persisted state
+      await autoActivateWebBridge();
+
       try {
         const result = await p2pBridge.getMyProfile();
         if (result.exists) {
@@ -83,7 +87,7 @@ export default function AuthScreen({ onLogin }) {
         }
       } catch(_) {}
       // Restore saved node URL
-      const saved = localStorage.getItem("echo_node_url");
+      const saved = localStorage.getItem("echo_node_url") || localStorage.getItem("echo_web_node_url");
       if (saved) setNodeUrl(saved);
       // Check existing connection
       try {
@@ -137,6 +141,8 @@ export default function AuthScreen({ onLogin }) {
     }
     setNodeLoading(true); setError("");
     try {
+      // Activate web bridge on web platform
+      await activateWebBridge();
       const result = await p2pBridge.connectToEchoNode({ url });
       if (result.connected) {
         setNodeStatus(result);
@@ -167,6 +173,9 @@ export default function AuthScreen({ onLogin }) {
     if (pass !== pass2)    { setError("Passwords don't match."); return; }
     setError(""); setLoading(true);
     try {
+      // Activate web bridge on web platform so signup goes to real node
+      await activateWebBridge();
+
       const avail = await p2pBridge.checkHandleAvailable({ handle });
       if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
       const result = await p2pBridge.setupProfile({ name, handle });
@@ -189,6 +198,8 @@ export default function AuthScreen({ onLogin }) {
   const doSignIn = async () => {
     setError(""); setLoading(true);
     try {
+      // Activate web bridge on web platform
+      await activateWebBridge();
       const result = await p2pBridge.getMyProfile();
       if (result.exists) {
         onLogin({ name:result.name, handle:result.handle, avatar:result.avatar, banner:result.banner||null, userId:result.userId });
@@ -211,6 +222,65 @@ export default function AuthScreen({ onLogin }) {
       }
     } catch(e) { setError("Could not sign in."); }
     setLoading(false);
+  };
+
+  /**
+   * Auto-connect to Echo Node via Mother Ship.
+   * Used when user clicks "Connect Automatically" — no manual IP needed.
+   */
+  const doAutoConnect = async () => {
+    setError(""); setNodeLoading(true);
+    try {
+      // Activate web bridge first
+      await activateWebBridge();
+
+      // Try to get saved node URL first
+      const savedUrl = localStorage.getItem("echo_web_node_url");
+      if (savedUrl) {
+        console.log("[Auth] Found saved node URL, reconnecting:", savedUrl);
+        const result = await p2pBridge.connectToEchoNode({ url: savedUrl });
+        if (result.connected) {
+          setNodeStatus(result);
+          setNodeUrl(savedUrl);
+          setNodeLoading(false);
+          return;
+        }
+        console.warn("[Auth] Saved node unreachable, trying Mother Ship…");
+      }
+
+      // Connect to Mother Ship and request a nearby node
+      console.log("[Auth] Requesting node from Mother Ship…");
+      const msResult = await motherShip.connect("web_auto");
+      console.log("[Auth] Mother Ship result:", msResult);
+
+      if (msResult.connected) {
+        // Wait a moment for connection to stabilize
+        await new Promise(r => setTimeout(r, 1000));
+
+        // Request nearby node
+        const nodeResult = await motherShip.requestNode();
+        console.log("[Auth] Node assignment:", nodeResult);
+
+        if (nodeResult.success && nodeResult.nodeUrl) {
+          const nodeUrl = nodeResult.nodeUrl;
+          console.log("[Auth] Connecting to assigned node:", nodeUrl);
+          const connectResult = await p2pBridge.connectToEchoNode({ url: nodeUrl });
+          if (connectResult.connected) {
+            setNodeStatus(connectResult);
+            setNodeUrl(nodeUrl);
+            localStorage.setItem("echo_node_url", nodeUrl);
+            setNodeLoading(false);
+            return;
+          }
+        }
+      }
+
+      setError("Could not auto-connect. Mother Ship may be unavailable. Try manual node setup below.");
+    } catch(e) {
+      console.error("[Auth] Auto-connect error:", e);
+      setError("Auto-connect failed: " + (e.message || "Unknown error") + ". Try manual setup.");
+    }
+    setNodeLoading(false);
   };
 
   const Back = () => (
@@ -324,7 +394,7 @@ export default function AuthScreen({ onLogin }) {
         <p style={{ color:C.muted, fontSize:11, textAlign:"center", marginTop:20, lineHeight:1.7 }}>
           Your identity is a cryptographic key.<br/>No email or password — ever.
         </p>
-        {/* Connect To Your Echo Node — moved to bottom for privacy enthusiasts */}
+        {/* Connect To Echo Node — auto or manual */}
         <button onClick={() => setMode("nodesetup")} style={{
           width:"100%", background:C.surface, border:`1px solid ${C.border}`,
           borderRadius:12, padding:"12px 16px", color:C.text, fontWeight:600, fontSize:14,
@@ -332,7 +402,7 @@ export default function AuthScreen({ onLogin }) {
           WebkitTapHighlightColor:"transparent",
         }}>
           <div style={{ width:8, height:8, borderRadius:"50%", background: nodeStatus?.connected ? C.green : C.muted }} />
-          <span>{nodeStatus?.connected ? `Node: ${nodeUrl}` : "Connect To Your Echo Node"}</span>
+          <span>{nodeStatus?.connected ? `Node: ${nodeUrl}` : "Connect To Echo Node"}</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2" style={{ marginLeft:"auto" }}><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
@@ -344,21 +414,24 @@ export default function AuthScreen({ onLogin }) {
     <div style={{ flex:1, display:"flex", flexDirection:"column", padding:"28px 28px", background:C.bg, overflowY:"auto" }}>
       <Back/>
       <LogoBlock small={true}/>
-      <h2 style={{ color:C.text, fontSize:26, fontWeight:900, margin:"0 0 6px", textAlign:"center" }}>Connect To Your Echo Node</h2>
-      <p style={{ color:C.muted, fontSize:13, margin:"0 0 28px", textAlign:"center", lineHeight:1.5 }}>
-        Run your local node to hide your IP.
+      <h2 style={{ color:C.text, fontSize:26, fontWeight:900, margin:"0 0 6px", textAlign:"center" }}>Connect To Echo Node</h2>
+      <p style={{ color:C.muted, fontSize:13, margin:"0 0 20px", textAlign:"center", lineHeight:1.5 }}>
+        Web → Echo Mother Ship → Echo Node<br/>Your node is automatically assigned.
       </p>
-      <AuthInput label="Node address (e.g. 192.168.1.100)" inputRef={nodeRef} />
-      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
-      <button onClick={doConnectNode} disabled={nodeLoading} style={{
-        width:"100%", border:"none", borderRadius:28, padding:"15px 0", marginTop:8,
+
+      {/* Auto-connect button */}
+      <button onClick={doAutoConnect} disabled={nodeLoading} style={{
+        width:"100%", border:"none", borderRadius:28, padding:"15px 0", marginBottom:20,
         background:`linear-gradient(90deg,${C.accentDark},${C.accent})`,
         color:"#000", fontWeight:800, fontSize:16, cursor:"pointer",
         opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
         boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
-      }}>{nodeLoading ? "Connecting…" : "Connect"}</button>
+      }}>
+        {nodeLoading ? "Connecting via Mother Ship…" : "⚡ Connect Automatically"}
+      </button>
+
       {nodeStatus?.connected && (
-        <div style={{ marginTop:16, padding:14, background:C.surface, borderRadius:12, border:`1px solid ${C.green}`, textAlign:"center" }}>
+        <div style={{ marginTop:-12, marginBottom:20, padding:14, background:C.surface, borderRadius:12, border:`1px solid ${C.green}`, textAlign:"center" }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginBottom:4 }}>
             <div style={{ width:8, height:8, borderRadius:"50%", background:C.green }} />
             <span style={{ color:C.green, fontSize:14, fontWeight:700 }}>Connected</span>
@@ -366,6 +439,21 @@ export default function AuthScreen({ onLogin }) {
           <span style={{ color:C.muted, fontSize:12 }}>{nodeUrl}</span>
         </div>
       )}
+
+      {/* Manual node URL divider */}
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:20 }}>
+        <div style={{ flex:1, height:1, background:C.border }}/><span style={{ color:C.muted, fontSize:13 }}>or enter node address manually</span><div style={{ flex:1, height:1, background:C.border }}/>
+      </div>
+
+      <AuthInput label="Node address (e.g. 192.168.1.100)" inputRef={nodeRef} />
+      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
+      <button onClick={doConnectNode} disabled={nodeLoading} style={{
+        width:"100%", border:"none", borderRadius:28, padding:"15px 0", marginTop:8,
+        background:C.surface, border:`1px solid ${C.border}`,
+        color:C.text, fontWeight:700, fontSize:16, cursor:"pointer",
+        opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
+      }}>{nodeLoading ? "Connecting…" : "Connect Manually"}</button>
+
       <button onClick={() => setMode("landing")} style={{
         background:"none", border:"none", cursor:"pointer", color:C.accent,
         fontSize:14, marginTop:24, textAlign:"center", WebkitTapHighlightColor:"transparent",

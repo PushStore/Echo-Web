@@ -1,18 +1,27 @@
 // File: src/mothership.js
 // mothership.js — JS bridge for Mother Ship connectivity.
-// Uses P2PCore Capacitor plugin for Mother Ship connectivity.
-// Auto-selects native plugin on device.
+// Uses P2PCore Capacitor plugin for Mother Ship connectivity on native.
+// Uses pure WebSocket client on web (mothership-web-client.js).
 //
-// Events (via Capacitor addListener on P2PCore):
-//   "mothershipConnectionChanged" — connection state change via P2PCore
-//   "mothershipDmReceived" — incoming DM via P2PCore
-//   "mothershipNodeAssigned" — node assignment via P2PCore
-//   "mothershipDmAck" — DM acknowledgment via P2PCore
+// Events:
+//   "mothershipConnectionChanged" — connection state change
+//   "mothershipDmReceived" — incoming DM
+//   "mothershipNodeAssigned" — node assignment from Mother Ship
+//   "mothershipDmAck" — DM acknowledgment
 
 import { registerPlugin } from "./capacitor-core-shim.js";
 
 // ── Native plugin ──────────────────────────────────────────────────────
 const P2PCore = registerPlugin('P2PCore');
+
+// ── Check if we're on web platform ────────────────────────────────────────
+function isWebPlatform() {
+  try {
+    return !window?.Capacitor?.isNativePlatform?.();
+  } catch (_) {
+    return true;
+  }
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -61,11 +70,30 @@ class MotherShipClient {
     this._dmListenerHandle = null;
     this._connListenerHandle = null;
     this._nodeListenerHandle = null;
+    this._webClient = null;
   }
 
   // ── Connect ────────────────────────────────────────────────────────────────
   // Connect to Mother Ship (called on app startup after login)
   async connect(userPublicKey) {
+    // On web, use the WebSocket-based client
+    if (isWebPlatform()) {
+      try {
+        const webClient = await import("./mothership-web-client.js");
+        this._webClient = webClient.default;
+        const result = await this._webClient.connect(userPublicKey);
+        this.connected = !!result.connected;
+        this.mothershipUrl = result.mothershipUrl || null;
+        console.log('[MotherShip] web client connected:', this.connected);
+        return result;
+      } catch (e) {
+        console.error('[MotherShip] web connect error:', e.message || e);
+        this.connected = false;
+        return { connected: false, error: e.message };
+      }
+    }
+
+    // On native, use P2PCore Capacitor plugin
     try {
       console.log('[MotherShip] connecting…');
       const result = await P2PCore.connectToMothership({ publicKey: userPublicKey });
@@ -100,12 +128,16 @@ class MotherShipClient {
   // ── Disconnect ─────────────────────────────────────────────────────────────
   async disconnect() {
     try {
-      console.log('[MotherShip] disconnecting…');
-      const result = await P2PCore.disconnectFromMothership();
+      if (isWebPlatform() && this._webClient) {
+        this._webClient.disconnect();
+      } else {
+        console.log('[MotherShip] disconnecting…');
+        await P2PCore.disconnectFromMothership();
+      }
       this.connected = false;
       this.mothershipUrl = null;
       console.log('[MotherShip] disconnected');
-      return result;
+      return { connected: false };
     } catch (e) {
       console.error('[MotherShip] disconnect error:', e.message || e);
       return { success: false, error: e.message };
@@ -116,6 +148,9 @@ class MotherShipClient {
   // Get current connection status
   async getStatus() {
     try {
+      if (isWebPlatform() && this._webClient) {
+        return this._webClient.getStatus();
+      }
       const result = await P2PCore.getMothershipStatus();
       this.connected = result.connected;
       this.mothershipUrl = result.mothershipUrl || null;
@@ -129,6 +164,9 @@ class MotherShipClient {
   // Send DM through Mother Ship (fallback when Echo Node is unavailable)
   async sendDm(recipientId, encryptedContent, messageType, conversationId) {
     try {
+      if (isWebPlatform() && this._webClient) {
+        return this._webClient.sendDm(recipientId, encryptedContent, messageType, conversationId);
+      }
       console.log('[MotherShip] sendDm to', recipientId, 'type:', messageType || 'text');
       return await P2PCore.sendDmViaMothership({
         recipientId,
@@ -145,6 +183,9 @@ class MotherShipClient {
   // ── Request nearby node assignment ─────────────────────────────────────────
   async requestNode() {
     try {
+      if (isWebPlatform() && this._webClient) {
+        return await this._webClient.requestNearbyNode();
+      }
       console.log('[MotherShip] requesting nearby node…');
       return await P2PCore.requestNearbyNode();
     } catch (e) {
@@ -157,7 +198,11 @@ class MotherShipClient {
   // Listen for incoming DMs from Mother Ship
   addDmListener(callback) {
     this.removeDmListener();
-    this._dmListenerHandle = P2PCore.addListener('mothershipDmReceived', callback);
+    if (isWebPlatform() && this._webClient) {
+      this._dmListenerHandle = this._webClient.addListener('mothershipDmReceived', callback);
+    } else {
+      this._dmListenerHandle = P2PCore.addListener('mothershipDmReceived', callback);
+    }
     console.log('[MotherShip] DM listener registered');
     return this._dmListenerHandle;
   }
@@ -165,7 +210,11 @@ class MotherShipClient {
   // Listen for connection state changes
   addConnectionListener(callback) {
     this.removeConnectionListener();
-    this._connListenerHandle = P2PCore.addListener('mothershipConnectionChanged', callback);
+    if (isWebPlatform() && this._webClient) {
+      this._connListenerHandle = this._webClient.addListener('mothershipConnectionChanged', callback);
+    } else {
+      this._connListenerHandle = P2PCore.addListener('mothershipConnectionChanged', callback);
+    }
     console.log('[MotherShip] connection listener registered');
     return this._connListenerHandle;
   }
@@ -173,7 +222,11 @@ class MotherShipClient {
   // Listen for node assignments
   addNodeAssignmentListener(callback) {
     this.removeNodeAssignmentListener();
-    this._nodeListenerHandle = P2PCore.addListener('mothershipNodeAssigned', callback);
+    if (isWebPlatform() && this._webClient) {
+      this._nodeListenerHandle = this._webClient.addListener('mothershipNodeAssigned', callback);
+    } else {
+      this._nodeListenerHandle = P2PCore.addListener('mothershipNodeAssigned', callback);
+    }
     console.log('[MotherShip] node assignment listener registered');
     return this._nodeListenerHandle;
   }
