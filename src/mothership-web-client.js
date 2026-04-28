@@ -179,7 +179,7 @@ export function connect(publicKey, url = null) {
 
     _ws.onerror = (e) => {
       clearTimeout(timeout);
-      console.error("[MotherShip-Web] WebSocket error:", e);
+      console.error("[MotherShip-Web] WebSocket error:", e.message || String(e));
       _connected = false;
       resolve({ connected: false, mothershipUrl, error: "WebSocket error" });
       scheduleReconnect();
