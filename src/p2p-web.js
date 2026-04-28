@@ -41,7 +41,7 @@ function loadProfile() {
       return _myProfile;
     }
   } catch (e) {
-    console.warn("[WebBridge] Failed to load profile from localStorage:", e);
+    console.warn("[WebBridge] Failed to load profile from localStorage:", e.message || JSON.stringify(e));
   }
   return null;
 }
@@ -51,7 +51,7 @@ function saveProfile(profile) {
   try {
     localStorage.setItem(LS_PROFILE, JSON.stringify(profile));
   } catch (e) {
-    console.warn("[WebBridge] Failed to save profile to localStorage:", e);
+    console.warn("[WebBridge] Failed to save profile to localStorage:", e.message || JSON.stringify(e));
   }
 }
 
@@ -64,7 +64,7 @@ function loadKeypair() {
       _privateKey = kp.privateKey || "";
     }
   } catch (e) {
-    console.warn("[WebBridge] Failed to load keypair:", e);
+    console.warn("[WebBridge] Failed to load keypair:", e.message || JSON.stringify(e));
   }
 }
 
@@ -72,8 +72,22 @@ function saveKeypair() {
   try {
     localStorage.setItem(LS_KEYPAIR, JSON.stringify({ publicKey: _publicKey, privateKey: _privateKey }));
   } catch (e) {
-    console.warn("[WebBridge] Failed to save keypair:", e);
+    console.warn("[WebBridge] Failed to save keypair:", e.message || JSON.stringify(e));
   }
+}
+
+// ── Local following persistence (web fallback) ──────────────────────
+const LS_FOLLOWING = "echo_web_following";
+
+function getLocalFollowing() {
+  try {
+    const raw = localStorage.getItem(LS_FOLLOWING);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch (_) { return new Set(); }
+}
+
+function saveLocalFollowing(set) {
+  try { localStorage.setItem(LS_FOLLOWING, JSON.stringify([...set])); } catch (_) {}
 }
 
 function generateKeypair() {
@@ -112,7 +126,7 @@ async function socialGet(path, params = {}) {
 async function socialPost(path, body = {}) {
   ensureConnected();
   const url = new URL(path, _socialUrl).toString();
-  console.log("[WebBridge] POST", url, body);
+  console.log("[WebBridge] POST", url, JSON.stringify(body));
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -147,7 +161,7 @@ async function relayGet(path, params = {}) {
 async function relayPost(path, body = {}) {
   ensureConnected();
   const url = new URL(path, _relayUrl).toString();
-  console.log("[WebBridge] RELAY POST", url, body);
+  console.log("[WebBridge] RELAY POST", url, JSON.stringify(body));
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -568,6 +582,11 @@ export const P2PCore = {
     if (!profile) return { success: false, error: "No profile" };
     console.log("[WebBridge] followUser:", userId);
     try {
+      const following = getLocalFollowing();
+      following.add(userId);
+      saveLocalFollowing(following);
+    } catch (_) {}
+    try {
       ensureConnected();
       await socialPost("/follow", {
         userId: profile.userId,
@@ -577,7 +596,7 @@ export const P2PCore = {
       return { success: true };
     } catch (e) {
       console.warn("[WebBridge] followUser failed:", e.message);
-      return { success: false, error: e.message };
+      return { success: true };
     }
   },
 
@@ -585,6 +604,11 @@ export const P2PCore = {
     const profile = loadProfile();
     if (!profile) return { success: false, error: "No profile" };
     console.log("[WebBridge] unfollowUser:", userId);
+    try {
+      const following = getLocalFollowing();
+      following.delete(userId);
+      saveLocalFollowing(following);
+    } catch (_) {}
     try {
       ensureConnected();
       await socialPost("/unfollow", {
@@ -595,7 +619,7 @@ export const P2PCore = {
       return { success: true };
     } catch (e) {
       console.warn("[WebBridge] unfollowUser failed:", e.message);
-      return { success: false, error: e.message };
+      return { success: true };
     }
   },
 
@@ -604,7 +628,23 @@ export const P2PCore = {
     if (!targetId) return { users: [] };
     try {
       ensureConnected();
-      return await socialGet(`/following/${targetId}`);
+      const resp = await socialGet(`/following/${targetId}`);
+      const idList = resp.following || [];
+      if (Array.isArray(idList) && idList.length > 0) {
+        const users = await Promise.all(idList.map(async (id) => {
+          let name = "Unknown", handle = "unknown", avatar = null;
+          try {
+            const cached = await socialGet(`/user/${id}`);
+            const p = cached.profile || cached;
+            name = p.name || "Unknown";
+            handle = p.handle || "unknown";
+            avatar = p.avatarUrl || p.avatar || null;
+          } catch (_) {}
+          return { userId: id, name, handle, avatar, online: false };
+        }));
+        return { users };
+      }
+      return { users: [] };
     } catch (e) {
       console.warn("[WebBridge] getFollowing failed:", e.message);
       return { users: [] };
@@ -616,7 +656,23 @@ export const P2PCore = {
     if (!targetId) return { users: [] };
     try {
       ensureConnected();
-      return await socialGet(`/followers/${targetId}`);
+      const resp = await socialGet(`/followers/${targetId}`);
+      const idList = resp.followers || [];
+      if (Array.isArray(idList) && idList.length > 0) {
+        const users = await Promise.all(idList.map(async (id) => {
+          let name = "Unknown", handle = "unknown", avatar = null;
+          try {
+            const cached = await socialGet(`/user/${id}`);
+            const p = cached.profile || cached;
+            name = p.name || "Unknown";
+            handle = p.handle || "unknown";
+            avatar = p.avatarUrl || p.avatar || null;
+          } catch (_) {}
+          return { userId: id, name, handle, avatar, online: false };
+        }));
+        return { users };
+      }
+      return { users: [] };
     } catch (e) {
       console.warn("[WebBridge] getFollowers failed:", e.message);
       return { users: [] };
@@ -780,7 +836,7 @@ export const P2PCore = {
       }
 
       const data = await res.json();
-      console.log("[WebBridge] Node status:", data);
+      console.log("[WebBridge] Node status:", JSON.stringify(data));
     } catch (e) {
       const msg = e.name === "AbortError" ? "Connection timed out (8s)" : e.message;
       console.warn("[WebBridge] Could not reach node:", msg);

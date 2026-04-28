@@ -84,7 +84,7 @@ class MotherShipClient {
         console.log('[MotherShip] web client connected:', this.connected);
         return result;
       } catch (e) {
-        console.error('[MotherShip] web connect error:', e.message || e);
+        console.error('[MotherShip] web connect error:', e.message || JSON.stringify(e));
         this.connected = false;
         return { connected: false, error: e.message };
       }
@@ -116,7 +116,7 @@ class MotherShipClient {
       }
       return { connected: this.connected, mothershipUrl: this.mothershipUrl };
     } catch (e) {
-      console.error('[MotherShip] connect error:', e.message || e);
+      console.error('[MotherShip] connect error:', e.message || JSON.stringify(e));
       this.connected = false;
       return { connected: false, error: e.message };
     }
@@ -136,7 +136,7 @@ class MotherShipClient {
       console.log('[MotherShip] disconnected');
       return { connected: false };
     } catch (e) {
-      console.error('[MotherShip] disconnect error:', e.message || e);
+      console.error('[MotherShip] disconnect error:', e.message || JSON.stringify(e));
       return { success: false, error: e.message };
     }
   }
@@ -172,7 +172,7 @@ class MotherShipClient {
         conversationId: conversationId || ''
       });
     } catch (e) {
-      console.error('[MotherShip] sendDm error:', e.message || e);
+      console.error('[MotherShip] sendDm error:', e.message || JSON.stringify(e));
       return { success: false, error: e.message };
     }
   }
@@ -186,7 +186,7 @@ class MotherShipClient {
       console.log('[MotherShip] requesting nearby node…');
       return await P2PCorePlugin.requestNearbyNode();
     } catch (e) {
-      console.error('[MotherShip] requestNode error:', e.message || e);
+      console.error('[MotherShip] requestNode error:', e.message || JSON.stringify(e));
       return { success: false, error: e.message };
     }
   }
