@@ -62,7 +62,7 @@ export default function AuthScreen({ onLogin }) {
   const [nodeStatus, setNodeStatus] = useState(null);
   const [nodeLoading, setNodeLoading] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
-  const [connStatus, setConnStatus] = useState(""); // status message during connection attempts
+  const [connStatus, setConnStatus] = useState(""); // real-time status during connection
 
   const nameRef   = useRef(null);
   const handleRef = useRef(null);
@@ -102,8 +102,6 @@ export default function AuthScreen({ onLogin }) {
   }, []);
 
   // ── Android hardware back button handler ─────────────────────────────────
-  // The App.js back button handler only runs AFTER login, so AuthScreen
-  // needs its own listener for signup/locked/nodesetup pages.
   useEffect(() => {
     let removeListener = null;
     const setup = async () => {
@@ -115,11 +113,9 @@ export default function AuthScreen({ onLogin }) {
               return "landing";
             }
             if (prevMode === "locked") {
-              // On locked screen: minimize app (don't exit)
               CapApp.getMinimizeApp && CapApp.getMinimizeApp();
               return prevMode;
             }
-            // On landing page: exit app
             CapApp.exitApp();
             return prevMode;
           });
@@ -137,13 +133,11 @@ export default function AuthScreen({ onLogin }) {
   const doConnectNode = async () => {
     let url = (nodeRef.current?.value.trim() || nodeUrl.trim()).replace(/\s+/g, "");
     if (!url) { setError("Enter your Echo Node address."); return; }
-    // Auto-prepend http:// if no protocol specified — user just enters IP:port
     if (!/^https?:\/\//i.test(url)) {
       url = "http://" + url;
     }
     setNodeLoading(true); setError("");
     try {
-      // Activate web bridge on web platform
       await activateWebBridge();
       const result = await p2pBridge.connectToEchoNode({ url });
       if (result.connected) {
@@ -160,13 +154,14 @@ export default function AuthScreen({ onLogin }) {
   };
 
   /**
-   * Try to establish a node connection — non-blocking for web.
+   * Establish a node connection — REQUIRED before account creation.
    * On native, the P2P plugin handles this. On web:
-   *   1. Try saved node URL
+   *   1. Try saved node URL from localStorage
    *   2. Connect to Mother Ship -> request nearby node -> connect to it
-   *   3. Retry Mother Ship up to 2 times with increasing timeout
-   * Returns true if connected, false if offline (does NOT throw).
-   * Account creation works without a node — profile is saved locally and synced later.
+   *   3. Retry Mother Ship up to 2 times with exponential backoff
+   *
+   * Returns true if connected.
+   * Throws a descriptive error if no node can be reached.
    */
   const ensureNodeConnection = async () => {
     // On native, the plugin manages node connectivity
@@ -175,12 +170,12 @@ export default function AuthScreen({ onLogin }) {
     // On web, activate the bridge module first
     await activateWebBridge();
 
-    // Try reconnecting to saved node
+    // Step 1: Try reconnecting to saved node URL
     const savedUrl = localStorage.getItem("echo_web_node_url") || localStorage.getItem("echo_node_url");
     if (savedUrl) {
       try {
+        setConnStatus("Reconnecting to saved node...");
         console.log("[Auth] Trying saved node:", savedUrl);
-        setConnStatus("Connecting to saved node...");
         const result = await p2pBridge.connectToEchoNode({ url: savedUrl });
         if (result.connected) {
           console.log("[Auth] Reconnected to saved node");
@@ -195,26 +190,25 @@ export default function AuthScreen({ onLogin }) {
       }
     }
 
-    // Connect to Mother Ship and request a nearby node — with retries
+    // Step 2: Connect to Mother Ship and request a node — with retries
     const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
-        setConnStatus(`Retrying... (attempt ${attempt + 1}/${maxRetries + 1})`);
+        const delay = 2000 * attempt; // 2s, 4s
+        setConnStatus(`Retrying... (attempt ${attempt + 1}/${maxRetries + 1}, ${delay / 1000}s delay)`);
         console.log(`[Auth] Mother Ship retry ${attempt}/${maxRetries}...`);
-        await new Promise(r => setTimeout(r, 2000 * attempt)); // backoff: 2s, 4s
+        await new Promise(r => setTimeout(r, delay));
       }
 
       try {
         setConnStatus("Connecting to Mother Ship...");
-        console.log("[Auth] Connecting to Mother Ship for node assignment...");
         const msResult = await motherShip.connect("web_signup");
         if (msResult.connected) {
-          setConnStatus("Requesting node assignment...");
-          await new Promise(r => setTimeout(r, 1500)); // wait for stabilization
+          setConnStatus("Mother Ship connected, requesting node assignment...");
+          await new Promise(r => setTimeout(r, 1500));
           const nodeResult = await motherShip.requestNode();
           if (nodeResult.success && nodeResult.nodeUrl) {
-            console.log("[Auth] Mother Ship assigned node:", nodeResult.nodeUrl);
-            setConnStatus("Connecting to assigned node...");
+            setConnStatus(`Connecting to Echo Node (${nodeResult.nodeUrl})...`);
             const connectResult = await p2pBridge.connectToEchoNode({ url: nodeResult.nodeUrl });
             if (connectResult.connected) {
               setNodeStatus(connectResult);
@@ -225,7 +219,7 @@ export default function AuthScreen({ onLogin }) {
               return true;
             }
           } else {
-            console.warn("[Auth] Mother Ship could not assign a node (no Echo Nodes online?)");
+            console.warn("[Auth] Mother Ship could not assign a node — no Echo Nodes online");
           }
         } else {
           console.warn("[Auth] Mother Ship connection failed:", msResult.error || "unknown");
@@ -235,11 +229,16 @@ export default function AuthScreen({ onLogin }) {
       }
     }
 
-    // Could not reach any node — but don't throw. Account creation can still
-    // proceed locally. The profile will be synced when a node becomes available.
-    console.warn("[Auth] No node connection available — proceeding in offline mode");
     setConnStatus("");
-    return false;
+    throw new Error(
+      "Could not reach any Echo Node. " +
+      "Either:\n" +
+      "- Mother Ship is down (ws://35.208.81.221:6884)\n" +
+      "- No Echo Nodes are currently online\n" +
+      "- Your internet connection is unstable\n\n" +
+      "Go to 'Connect To Echo Node' and enter a node address manually, " +
+      "or try again later."
+    );
   };
 
   const doCreate = async () => {
@@ -258,38 +257,23 @@ export default function AuthScreen({ onLogin }) {
     if (pass !== pass2)    { setError("Passwords don't match."); return; }
     setError(""); setLoading(true);
     try {
-      // Try to establish node connection (non-blocking)
-      let hasNode = false;
+      // MUST connect to a real Echo Node before creating account
       if (!window?.Capacitor?.isNativePlatform?.()) {
-        hasNode = await ensureNodeConnection();
-      } else {
-        hasNode = true;
+        await ensureNodeConnection();
       }
 
-      // Check handle availability only if we have a node connection
-      // (without a node, we can't verify uniqueness — profile is saved locally)
-      if (hasNode) {
-        try {
-          const avail = await p2pBridge.checkHandleAvailable({ handle });
-          if (!avail.available) {
-            setError(`@${handle} is already taken.`);
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          // Handle check failed (node went away?) — continue with local creation
-          console.warn("[Auth] Handle check failed, continuing locally:", e.message);
-        }
-      }
+      // Check handle availability on the real node
+      const avail = await p2pBridge.checkHandleAvailable({ handle });
+      if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
 
-      // Create profile (works with or without node connection)
+      // Register on the real node — must succeed
       const result = await p2pBridge.setupProfile({ name, handle });
       if (result.success) {
         if (pass.length > 0) await savePassword(pass);
         setPendingUser({ name, handle, avatar:null, banner:null, userId:result.userId });
         setMode("storage");
       } else {
-        setError("Something went wrong. Try again.");
+        setError("Registration failed on node. Please try again.");
       }
     } catch(e) {
       const msg = e.message || "unknown";
@@ -303,21 +287,17 @@ export default function AuthScreen({ onLogin }) {
   const doSignIn = async () => {
     setError(""); setLoading(true);
     try {
-      // Try to connect to node for sign-in (non-blocking)
-      let hasNode = false;
+      // MUST connect to a real Echo Node before signing in
       if (!window?.Capacitor?.isNativePlatform?.()) {
-        hasNode = await ensureNodeConnection();
-      } else {
-        hasNode = true;
+        await ensureNodeConnection();
       }
-
       const result = await p2pBridge.getMyProfile();
       if (result.exists) {
         onLogin({ name:result.name, handle:result.handle, avatar:result.avatar, banner:result.banner||null, userId:result.userId });
       } else {
         setError("No account found on this device. Create one first.");
       }
-    } catch(e) { setError("Could not sign in."); }
+    } catch(e) { setError("Could not sign in: " + (e.message || "Check your connection.")); }
     setLoading(false);
   };
 
@@ -337,19 +317,15 @@ export default function AuthScreen({ onLogin }) {
 
   /**
    * Auto-connect to Echo Node via Mother Ship.
-   * Used when user clicks "Connect Automatically" — no manual IP needed.
    */
   const doAutoConnect = async () => {
     setError(""); setNodeLoading(true);
     try {
-      const connected = await ensureNodeConnection();
-      if (!connected) {
-        setError("Could not reach Mother Ship or no Echo Nodes are online. Your account will work offline — connect later from settings.");
-      }
+      await ensureNodeConnection();
       setNodeLoading(false);
     } catch(e) {
       console.error("[Auth] Auto-connect error:", e);
-      setError(e.message || "Auto-connect failed. Try manual node setup below.");
+      setError(e.message || "Could not connect. Try manual node setup below.");
       setNodeLoading(false);
     }
   };
@@ -389,7 +365,6 @@ export default function AuthScreen({ onLogin }) {
           onLogin(pendingUser);
         }}
         onBack={() => {
-          // If coming from signup, allow skip with P2P as default
           onLogin(pendingUser);
         }}
         showContinue={true}
@@ -441,7 +416,7 @@ export default function AuthScreen({ onLogin }) {
         <LogoBlock small={false}/>
         <span style={{ color:C.text, fontSize:32, fontWeight:900, letterSpacing:-1.5, marginTop:8 }}>echo</span>
         <span style={{ color:C.muted, fontSize:14, textAlign:"center", maxWidth:260, lineHeight:1.6 }}>
-          Your Voice,Your Echo, peer to peer.<br/>No Servers. No Surveillance. No Ads.
+          Your Voice, Your Echo, peer to peer.<br/>No Servers. No Surveillance. No Ads.
         </span>
       </div>
       <div style={{ width:"100%" }}>
@@ -461,7 +436,7 @@ export default function AuthScreen({ onLogin }) {
         }}>
           {loading ? "Checking..." : "Sign in on this device"}
         </button>
-        {error && <p style={{ color:C.danger, fontSize:13, textAlign:"center", marginTop:10 }}>{error}</p>}
+        {error && <p style={{ color:C.danger, fontSize:13, textAlign:"center", marginTop:10, whiteSpace:"pre-line" }}>{error}</p>}
         <p style={{ color:C.muted, fontSize:11, textAlign:"center", marginTop:20, lineHeight:1.7 }}>
           Your identity is a cryptographic key.<br/>No email or password — ever.
         </p>
@@ -498,9 +473,10 @@ export default function AuthScreen({ onLogin }) {
         opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
         boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
       }}>
-        {nodeLoading ? `Connecting${connStatus ? ": " + connStatus : " via Mother Ship..."}` : "Connect Automatically"}
+        {nodeLoading ? (connStatus || "Connecting via Mother Ship...") : "Connect Automatically"}
       </button>
 
+      {/* Live status */}
       {connStatus && nodeLoading && (
         <div style={{ marginTop:-12, marginBottom:20, padding:12, background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, textAlign:"center" }}>
           <span style={{ color:C.muted, fontSize:12 }}>{connStatus}</span>
@@ -523,7 +499,7 @@ export default function AuthScreen({ onLogin }) {
       </div>
 
       <AuthInput label="Node address (e.g. 192.168.1.100)" inputRef={nodeRef} />
-      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
+      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px", whiteSpace:"pre-line" }}>{error}</p>}
       <button onClick={doConnectNode} disabled={nodeLoading} style={{
         width:"100%", borderRadius:28, padding:"15px 0", marginTop:8,
         background:C.surface,
@@ -564,7 +540,7 @@ export default function AuthScreen({ onLogin }) {
         type={showPass ? "text" : "password"}
         autoComplete="new-password"
       />
-      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
+      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px", whiteSpace:"pre-line" }}>{error}</p>}
       {connStatus && (
         <div style={{ padding:10, background:C.surface, borderRadius:8, border:`1px solid ${C.border}`, marginBottom:12, textAlign:"center" }}>
           <span style={{ color:C.muted, fontSize:12 }}>{connStatus}</span>
@@ -576,7 +552,7 @@ export default function AuthScreen({ onLogin }) {
         color:"#000", fontWeight:800, fontSize:16, cursor:"pointer",
         opacity:loading?0.6:1, WebkitTapHighlightColor:"transparent",
         boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
-      }}>{loading ? connStatus || "Creating account..." : "Create account"}</button>
+      }}>{loading ? (connStatus || "Creating account...") : "Create account"}</button>
       <div style={{ marginTop:24, padding:16, background:C.surface, borderRadius:12, border:`1px solid ${C.border}` }}>
         <p style={{ color:C.muted, fontSize:12, margin:0, lineHeight:1.8 }}>
           <strong style={{ color:C.text }}>Device account</strong><br/>

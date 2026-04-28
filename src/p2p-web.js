@@ -278,10 +278,11 @@ export const P2PCore = {
     const userId = existing?.userId || generateUserId();
     const timestamp = Date.now();
 
-    // Register with the server
+    // Register with the REAL server — this MUST succeed.
+    // We do NOT silently fall back to local-only — the profile must exist on the node.
+    ensureConnected();
     try {
-      ensureConnected();
-      await socialPost("/register", {
+      const response = await socialPost("/register", {
         userId,
         name,
         handle,
@@ -290,17 +291,26 @@ export const P2PCore = {
         signature: getSignature(),
         timestamp,
       });
-      console.log("[WebBridge] Registered on node:", userId);
+      console.log("[WebBridge] Registered on node:", userId, response);
+
+      // Check if the server rejected the registration
+      if (response?.error) {
+        throw new Error(response.error);
+      }
     } catch (e) {
-      console.warn("[WebBridge] setupProfile: registration failed:", e.message);
-      // Continue — we still save locally so the user can operate
+      const msg = e.message || "Unknown error";
+      // Map common server errors to user-friendly messages
+      if (msg.includes("handle") && (msg.includes("taken") || msg.includes("exists") || msg.includes("unique"))) {
+        throw new Error("handle_taken: @" + handle + " is already taken.");
+      }
+      throw new Error("node_error: Registration on Echo Node failed: " + msg);
     }
 
-    // Save locally
+    // Save locally only AFTER successful server registration
     const profile = { userId, name, handle, bio, avatar, banner };
     saveProfile(profile);
 
-    // Start DM polling now that we have a profile
+    // Start DM polling now that we have a registered profile
     startDmPolling();
 
     return { success: true, userId };
