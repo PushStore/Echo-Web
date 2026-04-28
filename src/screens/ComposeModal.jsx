@@ -3,6 +3,19 @@ import { useState, useRef, useEffect } from "react";
 import { C } from "../theme.js";
 import Avatar from "../components/Avatar.jsx";
 
+// ── Media size limits (in bytes) ─────────────────────────────────────────────
+// Images are sent as base64 data URLs (~33% overhead), so the raw limit is lower.
+// Videos are the most common crash cause — 4min 1080p can be 200-500MB.
+// Mother Ship's media.maxSizeBytes config defaults to 50MB; we match that for web.
+const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;   // 20 MB raw file size
+const MAX_VIDEO_SIZE_BYTES = 50 * 1024 * 1024;   // 50 MB raw file size
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
 // ── Video thumbnail extractor (client-side, before upload) ───────────────────
 function extractVideoThumbnail(dataUrl) {
   return new Promise((resolve) => {
@@ -43,18 +56,20 @@ const IcoImage  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="no
 const IcoVideo  = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>;
 const IcoCamera = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>;
 const IcoClose  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
+const IcoAlert  = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.danger} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
 
 export default function ComposeModal({ me, onClose, p2p, onPosted }) {
   const [text,         setText]         = useState("");
-  const [media,        setMedia]        = useState(null);   // { dataUrl, type, thumbnail }
+  const [media,        setMedia]        = useState(null);   // { dataUrl, type, thumbnail, fileSize }
   const [thumbLoading, setThumbLoading] = useState(false);
   const [posting,      setPosting]      = useState(false);
   const [posted,       setPosted]       = useState(false);
   const [storageType,  setStorageType]  = useState("p2p");
+  const [mediaError,   setMediaError]   = useState("");     // size validation error
 
   const fileInputRef  = useRef(null);
   const videoInputRef = useRef(null);
-  const canPost = (text.trim() || media) && !posting && !posted;
+  const canPost = (text.trim() || media) && !posting && !posted && !mediaError;
 
   // Fetch storage preference
   useEffect(() => {
@@ -83,12 +98,25 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
     }
   };
 
+  // ── Validate file size before processing ────────────────────────────────────
+  const validateMediaSize = (file, mediaType) => {
+    const maxSize = mediaType === "image" ? MAX_IMAGE_SIZE_BYTES : MAX_VIDEO_SIZE_BYTES;
+    if (file.size > maxSize) {
+      const error = `${mediaType === "image" ? "Image" : "Video"} is too large (${formatFileSize(file.size)}). Maximum is ${formatFileSize(maxSize)}. Please compress or trim it.`;
+      setMediaError(error);
+      setMedia(null);
+      return false;
+    }
+    setMediaError("");
+    return true;
+  };
+
   // ── Set video with thumbnail ───────────────────────────────────────────────
-  const setVideoMedia = async (dataUrl) => {
+  const setVideoMedia = async (dataUrl, fileSize) => {
     setThumbLoading(true);
-    setMedia({ dataUrl, type: "video", thumbnail: null });
+    setMedia({ dataUrl, type: "video", thumbnail: null, fileSize });
     const thumbnail = await extractVideoThumbnail(dataUrl);
-    setMedia({ dataUrl, type: "video", thumbnail });
+    setMedia({ dataUrl, type: "video", thumbnail, fileSize });
     setThumbLoading(false);
   };
 
@@ -99,16 +127,18 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
 
   const onFileImage = (e) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (!validateMediaSize(file, "image")) { e.target.value = ""; return; }
     const reader = new FileReader();
-    reader.onload = () => setMedia({ dataUrl: reader.result, type: "image" });
+    reader.onload = () => setMedia({ dataUrl: reader.result, type: "image", fileSize: file.size });
     reader.readAsDataURL(file);
     e.target.value = "";
   };
 
   const onFileVideo = (e) => {
     const file = e.target.files?.[0]; if (!file) return;
+    if (!validateMediaSize(file, "video")) { e.target.value = ""; return; }
     const reader = new FileReader();
-    reader.onload = () => setVideoMedia(reader.result);
+    reader.onload = () => setVideoMedia(reader.result, file.size);
     reader.readAsDataURL(file);
     e.target.value = "";
   };
@@ -131,7 +161,7 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
           <button onClick={onClose} style={{ background:"none", border:"none", color:C.text, fontSize:15, fontWeight:600, cursor:"pointer" }}>Cancel</button>
           <button onClick={doPost} disabled={!canPost}
             style={{ background: canPost ? `linear-gradient(90deg,${C.accentDark},${C.accent})` : C.surface, border:"none", color: canPost ? "#000" : C.muted, borderRadius:20, padding:"9px 22px", fontWeight:800, fontSize:15, cursor: canPost ? "pointer" : "default" }}>
-            {posted ? "Posted! ✓" : posting ? "Sending…" : "Echo"}
+            {posted ? "Posted!" : posting ? "Sending..." : "Echo"}
           </button>
         </div>
 
@@ -143,6 +173,17 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
               placeholder="What's your echo?"
               style={{ width:"100%", background:"none", border:"none", outline:"none", color:C.text, fontSize:17, resize:"none", minHeight:90, lineHeight:1.55, boxSizing:"border-box" }}
             />
+
+            {/* Media size error */}
+            {mediaError && (
+              <div style={{ display:"flex", alignItems:"flex-start", gap:8, marginTop:8, marginBottom:8, padding:10, background:`${C.danger}15`, borderRadius:8, border:`1px solid ${C.danger}40` }}>
+                <IcoAlert/>
+                <span style={{ color:C.danger, fontSize:12, lineHeight:1.5, flex:1 }}>{mediaError}</span>
+                <button onClick={() => setMediaError("")} style={{ background:"none", border:"none", cursor:"pointer", padding:0, opacity:0.7 }}>
+                  <IcoClose/>
+                </button>
+              </div>
+            )}
 
             {/* Media preview — shows thumbnail for video while it loads */}
             {media && (
@@ -161,7 +202,7 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
                     )}
                     {thumbLoading && (
                       <div style={{ height:120, display:"flex", alignItems:"center", justifyContent:"center", background:"#111" }}>
-                        <span style={{ color:C.muted, fontSize:13 }}>Generating thumbnail…</span>
+                        <span style={{ color:C.muted, fontSize:13 }}>Generating thumbnail...</span>
                       </div>
                     )}
                     {media.thumbnail && (
@@ -173,7 +214,13 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
                     )}
                   </div>
                 )}
-                <button onClick={() => setMedia(null)} style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,.65)", border:"none", borderRadius:"50%", width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
+                {/* File size indicator for media */}
+                {media.fileSize && (
+                  <div style={{ position:"absolute", bottom:8, left:8, background:"rgba(0,0,0,.65)", borderRadius:6, padding:"2px 8px" }}>
+                    <span style={{ color:"#fff", fontSize:11, fontWeight:600 }}>{formatFileSize(media.fileSize)}</span>
+                  </div>
+                )}
+                <button onClick={() => { setMedia(null); setMediaError(""); }} style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,.65)", border:"none", borderRadius:"50%", width:28, height:28, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer" }}>
                   <IcoClose/>
                 </button>
               </div>
@@ -183,8 +230,8 @@ export default function ComposeModal({ me, onClose, p2p, onPosted }) {
 
         <div style={{ height:1, background:C.border, margin:"12px 0 10px" }}/>
         <div style={{ display:"flex", alignItems:"center", gap:6, paddingLeft:54, paddingBottom:8 }}>
-          <button onClick={handleGalleryImage} disabled={!!media} style={{ background:"none", border:"none", cursor: media ? "default" : "pointer", opacity: media ? 0.35 : 1, padding:6, borderRadius:8 }}><IcoImage/></button>
-          <button onClick={handleGalleryVideo} disabled={!!media} style={{ background:"none", border:"none", cursor: media ? "default" : "pointer", opacity: media ? 0.35 : 1, padding:6, borderRadius:8 }}><IcoVideo/></button>
+          <button onClick={handleGalleryImage} disabled={!!media} style={{ background:"none", border:"none", cursor: media ? "default" : "pointer", opacity: media ? 0.35 : 1, padding:6, borderRadius:8 }} title="Image (max 20 MB)"><IcoImage/></button>
+          <button onClick={handleGalleryVideo} disabled={!!media} style={{ background:"none", border:"none", cursor: media ? "default" : "pointer", opacity: media ? 0.35 : 1, padding:6, borderRadius:8 }} title="Video (max 50 MB)"><IcoVideo/></button>
           <button onClick={handleCamera}       disabled={!!media} style={{ background:"none", border:"none", cursor: media ? "default" : "pointer", opacity: media ? 0.35 : 1, padding:6, borderRadius:8 }}><IcoCamera/></button>
           <div style={{ flex:1 }}/>
           <div style={{ display:"flex", alignItems:"center", gap:5 }}>

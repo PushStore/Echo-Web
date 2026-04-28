@@ -12,6 +12,11 @@
 
 const DEFAULT_MOTHERSHIP_URL = "ws://35.208.81.221:6884";
 
+// ── Timeouts (ms) ────────────────────────────────────────────────────────────
+const WS_CONNECT_TIMEOUT   = 15000; // WebSocket connection timeout (was 10s, increased for slow networks)
+const WS_REGISTER_WAIT     = 2000;  // Wait for server "connected" response after register
+const NODE_REQUEST_TIMEOUT = 15000; // Node assignment request timeout (was 10s)
+
 // ── Module-level state ────────────────────────────────────────────────────
 let _ws = null;
 let _connected = false;
@@ -107,16 +112,31 @@ function stopHeartbeat() {
   }
 }
 
-// ── Auto-reconnect ───────────────────────────────────────────────────────
+// ── Auto-reconnect with exponential backoff ──────────────────────────────
+let _reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 function scheduleReconnect() {
   if (_reconnectTimer) return;
+  // Exponential backoff: 3s, 6s, 12s, 24s, 30s (capped)
+  const delay = Math.min(3000 * Math.pow(2, _reconnectAttempts), 30000);
+  _reconnectAttempts++;
+  if (_reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+    console.warn("[MotherShip-Web] Max reconnect attempts reached, giving up.");
+    return;
+  }
+  console.log(`[MotherShip-Web] Scheduling reconnect in ${delay}ms (attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
   _reconnectTimer = setTimeout(() => {
     _reconnectTimer = null;
     if (_publicKey && !_connected) {
-      console.log("[MotherShip-Web] attempting reconnect…");
+      console.log("[MotherShip-Web] attempting reconnect...");
       connect(_publicKey, _url).catch(() => {});
     }
-  }, 5000);
+  }, delay);
+}
+
+function resetReconnectCounter() {
+  _reconnectAttempts = 0;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -152,13 +172,14 @@ export function connect(publicKey, url = null) {
     }
 
     const timeout = setTimeout(() => {
+      console.warn("[MotherShip-Web] Connection timed out after", WS_CONNECT_TIMEOUT, "ms");
       _ws?.close();
-      resolve({ connected: false, mothershipUrl, error: "Connection timed out (10s)" });
-    }, 10000);
+      resolve({ connected: false, mothershipUrl, error: `Connection timed out (${WS_CONNECT_TIMEOUT / 1000}s)` });
+    }, WS_CONNECT_TIMEOUT);
 
     _ws.onopen = () => {
       clearTimeout(timeout);
-      console.log("[MotherShip-Web] WebSocket opened, sending register…");
+      console.log("[MotherShip-Web] WebSocket opened, sending register...");
 
       // Register with the Mother Ship
       send({
@@ -171,8 +192,9 @@ export function connect(publicKey, url = null) {
       // The server should respond with a "connected" message
       // Give it a moment, then resolve
       setTimeout(() => {
+        if (_connected) resetReconnectCounter();
         resolve({ connected: _connected, mothershipUrl });
-      }, 1000);
+      }, WS_REGISTER_WAIT);
     };
 
     _ws.onmessage = handleRawMessage;
@@ -215,6 +237,7 @@ export function disconnect() {
     clearTimeout(_reconnectTimer);
     _reconnectTimer = null;
   }
+  _reconnectAttempts = 0;
   if (_ws) {
     _ws.onclose = null; // prevent reconnect
     _ws.close();
@@ -276,11 +299,11 @@ export function requestNearbyNode() {
     };
     _eventTarget.addEventListener("mothershipNodeAssigned", handler);
 
-    // Timeout after 10 seconds
+    // Timeout after configured duration
     setTimeout(() => {
       _eventTarget.removeEventListener("mothershipNodeAssigned", handler);
-      resolve({ success: false, error: "Node assignment timed out" });
-    }, 10000);
+      resolve({ success: false, error: `Node assignment timed out (${NODE_REQUEST_TIMEOUT / 1000}s)` });
+    }, NODE_REQUEST_TIMEOUT);
 
     // Request the node
     send({
