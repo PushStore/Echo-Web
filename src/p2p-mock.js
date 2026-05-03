@@ -36,6 +36,7 @@ import * as groupChat           from "./mocks/mock-group-chat.js";
 import * as stories             from "./mocks/mock-stories.js";
 import * as calls               from "./mocks/mock-calls.js";
 import * as storage             from "./mocks/mock-storage.js";
+import * as p2pBlockSync        from "./mocks/mock-device-sync.js";
 
 /**
  * P2PCore mock — mirrors the native Android Capacitor plugin API.
@@ -198,4 +199,29 @@ export const P2PCore = {
   connectWeb3Storage:    storage.connectWeb3Storage,
   disconnectWeb3Storage: storage.disconnectWeb3Storage,
   getStorageStatus:      storage.getStorageStatus,
+
+  // ── P2P Block Sync (Scenarios A, B, C) ──────────────────────────
+  seedAnnounce:          p2pBlockSync.seedAnnounce,
+  seedGetStatus:         p2pBlockSync.seedGetStatus,
+  seedLookup:            p2pBlockSync.seedLookup,
+  seedRemove:            p2pBlockSync.seedRemove,
+  blockBuffer:           p2pBlockSync.blockBuffer,
+  blockGet:              p2pBlockSync.blockGet,
+  blockAck:              p2pBlockSync.blockAck,
+
+  // ── File Transfer (Scenario B) ──────────────────────────────────
+  transferCreate:        p2pBlockSync.transferCreate,
+  transferList:          p2pBlockSync.transferList,
+  transferAccept:        p2pBlockSync.transferAccept,
+  transferDecline:       p2pBlockSync.transferDecline,
+  transferCancel:        p2pBlockSync.transferCancel,
+  transferProgress:      p2pBlockSync.transferProgress,
+  transferBlockReceived: p2pBlockSync.transferBlockReceived,
+
+  // ── Device Pairing (Scenario D) ────────────────────────────────
+  pairGenerate:     p2pBlockSync.pairGenerate,
+  pairVerify:       p2pBlockSync.pairVerify,
+  pairList:         p2pBlockSync.pairList,
+  pairUnpair:       p2pBlockSync.pairUnpair,
+  deviceSyncDelta:  p2pBlockSync.deviceSyncDelta,
 };
