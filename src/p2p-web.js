@@ -1719,6 +1719,7 @@ export const P2PCore = {
     }
   },
 
+<<<<<<< Updated upstream
   async callGetStats() {
     const profile = loadProfile();
     if (!profile) return { totalCalls: 0, totalDuration: 0 };
@@ -1728,6 +1729,254 @@ export const P2PCore = {
     } catch (e) {
       return { totalCalls: 0, totalDuration: 0 };
     }
+=======
+  // ── P2P Block Sync (Scenarios A, B, C) ────────────────────────────
+
+  // Seeding: announce this device is seeding a media file
+  async seedAnnounce({ mediaHash, deviceId, listingId, manifest, ttlMinutes }) {
+    const profile = loadProfile();
+    if (!profile) return { success: false, error: "No profile" };
+    try {
+      return await relayPost("/relay/seed/announce", {
+        media_hash: mediaHash,
+        user_id: profile.userId,
+        device_id: deviceId,
+        listing_id: listingId || null,
+        manifest: manifest || null,
+        ttl_minutes: ttlMinutes || 60,
+      });
+    } catch (e) {
+      console.warn("[WebBridge] seedAnnounce failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Seeding: get list of media this user is currently seeding
+  async seedGetStatus() {
+    const profile = loadProfile();
+    if (!profile) return { seeders: [], seeding_count: 0 };
+    try {
+      return await relayGet("/relay/seed", { user_id: profile.userId });
+    } catch (e) {
+      console.warn("[WebBridge] seedGetStatus failed:", e.message);
+      return { seeders: [], seeding_count: 0 };
+    }
+  },
+
+  // Seeding: find seeders for a specific media hash
+  async seedLookup({ mediaHash }) {
+    try {
+      return await relayGet(`/relay/seed/lookup/${mediaHash}`);
+    } catch (e) {
+      console.warn("[WebBridge] seedLookup failed:", e.message);
+      return { seeders: [], seeder_count: 0 };
+    }
+  },
+
+  // Seeding: stop seeding a media hash
+  async seedRemove({ mediaHash, deviceId }) {
+    try {
+      return await relayPost(`/relay/seed/remove/${mediaHash}`, { device_id: deviceId });
+    } catch (e) {
+      console.warn("[WebBridge] seedRemove failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Block buffer: buffer an encrypted block for relay
+  async blockBuffer({ fileHash, blockIndex, data }) {
+    try {
+      return await relayPost("/relay/block/buffer", {
+        file_hash: fileHash,
+        block_index: blockIndex,
+        data,
+      });
+    } catch (e) {
+      console.warn("[WebBridge] blockBuffer failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Block buffer: retrieve a buffered block
+  async blockGet({ fileHash, blockIndex }) {
+    try {
+      return await relayGet(`/relay/block/get/${fileHash}/${blockIndex}`);
+    } catch (e) {
+      console.warn("[WebBridge] blockGet failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Block buffer: acknowledge block received
+  async blockAck({ fileHash, blockIndex }) {
+    try {
+      return await relayPost(`/relay/block/ack/${fileHash}/${blockIndex}`);
+    } catch (e) {
+      console.warn("[WebBridge] blockAck failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // ── File Transfer (Scenario B — Direct File Send) ──────────────────
+
+  // Transfer: initiate a file transfer to another user
+  async transferCreate({ fileHash, fileName, fileSize, mimeType, recipientId, manifest }) {
+    const profile = loadProfile();
+    if (!profile) return { success: false, error: "No profile" };
+    try {
+      return await relayPost("/relay/transfer/create", {
+        file_hash: fileHash,
+        file_name: fileName,
+        file_size: fileSize,
+        mime_type: mimeType,
+        sender_id: profile.userId,
+        recipient_id: recipientId,
+        manifest: manifest || null,
+      });
+    } catch (e) {
+      console.warn("[WebBridge] transferCreate failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Transfer: list transfer sessions
+  async transferList({ status }) {
+    const profile = loadProfile();
+    if (!profile) return { pending: [], active: [] };
+    try {
+      return await relayGet("/relay/transfer", { user_id: profile.userId, status });
+    } catch (e) {
+      console.warn("[WebBridge] transferList failed:", e.message);
+      return { pending: [], active: [] };
+    }
+  },
+
+  // Transfer: accept a pending transfer
+  async transferAccept({ sessionId }) {
+    try {
+      return await relayPost(`/relay/transfer/${sessionId}/accept`);
+    } catch (e) {
+      console.warn("[WebBridge] transferAccept failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Transfer: decline a pending transfer
+  async transferDecline({ sessionId }) {
+    try {
+      return await relayPost(`/relay/transfer/${sessionId}/decline`);
+    } catch (e) {
+      console.warn("[WebBridge] transferDecline failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Transfer: cancel a transfer
+  async transferCancel({ sessionId }) {
+    try {
+      const profile = loadProfile();
+      return await relayPost(`/relay/transfer/${sessionId}/cancel`, { cancelled_by: profile?.userId });
+    } catch (e) {
+      console.warn("[WebBridge] transferCancel failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Transfer: get transfer progress
+  async transferProgress({ sessionId }) {
+    try {
+      return await relayGet(`/relay/transfer/${sessionId}/progress`);
+    } catch (e) {
+      console.warn("[WebBridge] transferProgress failed:", e.message);
+      return { progress: 0, status: "unknown" };
+    }
+  },
+
+  // Transfer: record a block received
+  async transferBlockReceived({ sessionId, blockIndex }) {
+    try {
+      return await relayPost(`/relay/transfer/${sessionId}/block/${blockIndex}`);
+    } catch (e) {
+      console.warn("[WebBridge] transferBlockReceived failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // ── Device Pairing (Scenario D) ────────────────────────────────────
+
+  // Pairing: generate a pairing token
+  async pairGenerate({ label }) {
+    const profile = loadProfile();
+    if (!profile) return { success: false, error: "No profile" };
+    const deviceId = "web_" + (profile.userId || Date.now());
+    try {
+      return await relayPost("/relay/pair/generate", {
+        user_id: profile.userId,
+        device_id: deviceId,
+        label: label || "Web Browser",
+      });
+    } catch (e) {
+      console.warn("[WebBridge] pairGenerate failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Pairing: verify a token and pair this device
+  async pairVerify({ token, deviceName, deviceType, publicKey }) {
+    const deviceId = "web_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+    try {
+      return await relayPost("/relay/pair/verify", {
+        token,
+        device_id: deviceId,
+        device_name: deviceName || "Web Browser",
+        device_type: deviceType || "web",
+        public_key: publicKey || "",
+      });
+    } catch (e) {
+      console.warn("[WebBridge] pairVerify failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Pairing: list paired devices
+  async pairList() {
+    const profile = loadProfile();
+    if (!profile) return { devices: [] };
+    try {
+      return await relayGet("/relay/pair", { user_id: profile.userId });
+    } catch (e) {
+      console.warn("[WebBridge] pairList failed:", e.message);
+      return { devices: [] };
+    }
+  },
+
+  // Pairing: unpair a device
+  async pairUnpair({ pairingId }) {
+    const deviceId = "web_" + (loadProfile()?.userId || Date.now());
+    try {
+      return await relayPost(`/relay/pair/${pairingId}/unpair`, { requesting_device_id: deviceId });
+    } catch (e) {
+      console.warn("[WebBridge] pairUnpair failed:", e.message);
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Multi-device sync: get sync delta
+  async deviceSyncDelta({ deviceId }) {
+    try {
+      return await relayGet(`/relay/devicesync/${deviceId}/delta`);
+    } catch (e) {
+      console.warn("[WebBridge] deviceSyncDelta failed:", e.message);
+      return { new_dms: [], new_group_msgs: [] };
+    }
+  },
+
+  // ── Event Listeners (EventTarget-based) ────────────────────────────
+
+  addListener(event, callback) {
+    _eventTarget.addEventListener(event, (e) => callback(e.detail));
+    return { remove: () => _eventTarget.removeEventListener(event, (e) => callback(e.detail)) };
+>>>>>>> Stashed changes
   },
 
   // ── Media Storage Options ────────────────────────────────────────────

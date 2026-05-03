@@ -179,6 +179,31 @@ export const P2PCore = {
     callGetHistory({ limit }) { return _native.callGetHistory({ limit }) },
     callTimeout({ sessionId }) { return _native.callTimeout({ sessionId }) },
     callGetStats() { return _native.callGetStats() },
+
+    // ── P2P Block Sync (Scenarios A, B, C) ────────────────────────────
+    seedAnnounce:          ({ mediaHash, deviceId, listingId, manifest, ttlMinutes }) => _native.seedAnnounce({ mediaHash, deviceId, listingId, manifest, ttlMinutes }),
+    seedGetStatus:         ()                      => _native.seedGetStatus(),
+    seedLookup:            ({ mediaHash })           => _native.seedLookup({ mediaHash }),
+    seedRemove:            ({ mediaHash, deviceId }) => _native.seedRemove({ mediaHash, deviceId }),
+    blockBuffer:           ({ fileHash, blockIndex, data }) => _native.blockBuffer({ fileHash, blockIndex, data }),
+    blockGet:              ({ fileHash, blockIndex }) => _native.blockGet({ fileHash, blockIndex }),
+    blockAck:              ({ fileHash, blockIndex }) => _native.blockAck({ fileHash, blockIndex }),
+
+    // ── File Transfer (Scenario B) ─────────────────────────────────────
+    transferCreate:        ({ fileHash, fileName, fileSize, mimeType, recipientId, manifest }) => _native.transferCreate({ fileHash, fileName, fileSize, mimeType, recipientId, manifest }),
+    transferList:          ({ status })              => _native.transferList({ status }),
+    transferAccept:        ({ sessionId })           => _native.transferAccept({ sessionId }),
+    transferDecline:       ({ sessionId })           => _native.transferDecline({ sessionId }),
+    transferCancel:        ({ sessionId })           => _native.transferCancel({ sessionId }),
+    transferProgress:      ({ sessionId })           => _native.transferProgress({ sessionId }),
+    transferBlockReceived: ({ sessionId, blockIndex }) => _native.transferBlockReceived({ sessionId, blockIndex }),
+
+    // ── Device Pairing (Scenario D) ────────────────────────────────────
+    pairGenerate:     ({ label })           => _native.pairGenerate({ label }),
+    pairVerify:       ({ token, deviceName, deviceType, publicKey }) => _native.pairVerify({ token, deviceName, deviceType, publicKey }),
+    pairList:         ()                    => _native.pairList(),
+    pairUnpair:       ({ pairingId })       => _native.pairUnpair({ pairingId }),
+    deviceSyncDelta:  ({ deviceId })        => _native.deviceSyncDelta({ deviceId }),
 };
 
 // ── BLE Mesh ────────────────────────────────────────────────────────────

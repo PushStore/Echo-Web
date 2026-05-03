@@ -4,6 +4,8 @@ import { BleMesh } from "../ble.js";
 import EchoNodeSettings from "../components/EchoNodeSettings.jsx";
 import Sheet from "../components/Sheet.jsx";
 import StorageSelectionScreen from "./StorageSelectionScreen.jsx";
+import DevicePairingSheet from "../components/DevicePairingSheet.jsx";
+import FileTransferSheet from "../components/FileTransferSheet.jsx";
 
 // ── BLE Settings Component ─────────────────────────────────────────────
 function BleSettings() {
@@ -131,6 +133,8 @@ export default function SettingsScreen({ me, p2p, onLogout, onUpdateProfile, onG
   const [bannerPrev, setBannerPrev] = useState(null);
   const [saving, setSaving] = useState(false);
   const [showStorage, setShowStorage] = useState(false);
+  const [showDevicePairing, setShowDevicePairing] = useState(false);
+  const [showFileTransfers, setShowFileTransfers] = useState(false);
   const [currentStorageType, setCurrentStorageType] = useState("p2p");
 
   // Open edit form pre-filled
@@ -282,7 +286,14 @@ export default function SettingsScreen({ me, p2p, onLogout, onUpdateProfile, onG
           icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>}
           title="Device Management"
           subtitle="Manage linked devices"
-          onClick={() => {}}
+          onClick={() => setShowDevicePairing(true)}
+        />
+
+        <SettingsRow
+          icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>}
+          title="File Transfers"
+          subtitle="P2P block sync & direct transfers"
+          onClick={() => setShowFileTransfers(true)}
         />
 
         <SettingsRow
@@ -378,6 +389,24 @@ export default function SettingsScreen({ me, p2p, onLogout, onUpdateProfile, onG
           {saving ? "Saving..." : "Save"}
         </button>
       </Sheet>
+
+      {/* ════════════ DEVICE PAIRING SHEET ════════════ */}
+      <DevicePairingSheet
+        show={showDevicePairing}
+        onClose={() => setShowDevicePairing(false)}
+        p2p={p2p}
+        onModalOpen={onModalOpen}
+        onModalClose={onModalClose}
+      />
+
+      {/* ════════════ FILE TRANSFER SHEET ════════════ */}
+      <FileTransferSheet
+        show={showFileTransfers}
+        onClose={() => setShowFileTransfers(false)}
+        p2p={p2p}
+        onModalOpen={onModalOpen}
+        onModalClose={onModalClose}
+      />
 
       {/* ════════════ STORAGE SELECTION OVERLAY ════════════ */}
       {showStorage && (
