@@ -62,6 +62,7 @@ export default function AuthScreen({ onLogin }) {
   const [nodeStatus, setNodeStatus] = useState(null);
   const [nodeLoading, setNodeLoading] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
+  const [connStatus, setConnStatus] = useState(""); // real-time status during connection
 
   const nameRef   = useRef(null);
   const handleRef = useRef(null);
@@ -101,8 +102,6 @@ export default function AuthScreen({ onLogin }) {
   }, []);
 
   // ── Android hardware back button handler ─────────────────────────────────
-  // The App.js back button handler only runs AFTER login, so AuthScreen
-  // needs its own listener for signup/locked/nodesetup pages.
   useEffect(() => {
     let removeListener = null;
     const setup = async () => {
@@ -114,11 +113,9 @@ export default function AuthScreen({ onLogin }) {
               return "landing";
             }
             if (prevMode === "locked") {
-              // On locked screen: minimize app (don't exit)
               CapApp.getMinimizeApp && CapApp.getMinimizeApp();
               return prevMode;
             }
-            // On landing page: exit app
             CapApp.exitApp();
             return prevMode;
           });
@@ -136,13 +133,11 @@ export default function AuthScreen({ onLogin }) {
   const doConnectNode = async () => {
     let url = (nodeRef.current?.value.trim() || nodeUrl.trim()).replace(/\s+/g, "");
     if (!url) { setError("Enter your Echo Node address."); return; }
-    // Auto-prepend http:// if no protocol specified — user just enters IP:port
     if (!/^https?:\/\//i.test(url)) {
       url = "http://" + url;
     }
     setNodeLoading(true); setError("");
     try {
-      // Activate web bridge on web platform
       await activateWebBridge();
       const result = await p2pBridge.connectToEchoNode({ url });
       if (result.connected) {
@@ -159,11 +154,14 @@ export default function AuthScreen({ onLogin }) {
   };
 
   /**
-   * Ensure we have a node connection — same flow as doAutoConnect.
+   * Establish a node connection — REQUIRED before account creation.
    * On native, the P2P plugin handles this. On web:
-   *   1. Try saved node URL
+   *   1. Try saved node URL from localStorage
    *   2. Connect to Mother Ship -> request nearby node -> connect to it
-   * Returns true if connected, throws if not.
+   *   3. Retry Mother Ship up to 2 times with exponential backoff
+   *
+   * Returns true if connected.
+   * Throws a descriptive error if no node can be reached.
    */
   const ensureNodeConnection = async () => {
     // On native, the plugin manages node connectivity
@@ -172,16 +170,18 @@ export default function AuthScreen({ onLogin }) {
     // On web, activate the bridge module first
     await activateWebBridge();
 
-    // Try reconnecting to saved node
+    // Step 1: Try reconnecting to saved node URL
     const savedUrl = localStorage.getItem("echo_web_node_url") || localStorage.getItem("echo_node_url");
     if (savedUrl) {
       try {
+        setConnStatus("Reconnecting to saved node...");
         console.log("[Auth] Trying saved node:", savedUrl);
         const result = await p2pBridge.connectToEchoNode({ url: savedUrl });
         if (result.connected) {
           console.log("[Auth] Reconnected to saved node");
           setNodeStatus(result);
           setNodeUrl(savedUrl);
+          setConnStatus("");
           return true;
         }
         console.warn("[Auth] Saved node unreachable");
@@ -190,26 +190,55 @@ export default function AuthScreen({ onLogin }) {
       }
     }
 
-    // Connect to Mother Ship and request a nearby node
-    console.log("[Auth] Connecting to Mother Ship for node assignment...");
-    const msResult = await motherShip.connect("web_signup");
-    if (msResult.connected) {
-      await new Promise(r => setTimeout(r, 1000));
-      const nodeResult = await motherShip.requestNode();
-      if (nodeResult.success && nodeResult.nodeUrl) {
-        console.log("[Auth] Mother Ship assigned node:", nodeResult.nodeUrl);
-        const connectResult = await p2pBridge.connectToEchoNode({ url: nodeResult.nodeUrl });
-        if (connectResult.connected) {
-          setNodeStatus(connectResult);
-          setNodeUrl(nodeResult.nodeUrl);
-          localStorage.setItem("echo_node_url", nodeResult.nodeUrl);
-          localStorage.setItem("echo_web_node_url", nodeResult.nodeUrl);
-          return true;
+    // Step 2: Connect to Mother Ship and request a node — with retries
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        const delay = 2000 * attempt; // 2s, 4s
+        setConnStatus(`Retrying... (attempt ${attempt + 1}/${maxRetries + 1}, ${delay / 1000}s delay)`);
+        console.log(`[Auth] Mother Ship retry ${attempt}/${maxRetries}...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+
+      try {
+        setConnStatus("Connecting to Mother Ship...");
+        const msResult = await motherShip.connect("web_signup");
+        if (msResult.connected) {
+          setConnStatus("Mother Ship connected, requesting node assignment...");
+          await new Promise(r => setTimeout(r, 1500));
+          const nodeResult = await motherShip.requestNode();
+          if (nodeResult.success && nodeResult.nodeUrl) {
+            setConnStatus(`Connecting to Echo Node (${nodeResult.nodeUrl})...`);
+            const connectResult = await p2pBridge.connectToEchoNode({ url: nodeResult.nodeUrl });
+            if (connectResult.connected) {
+              setNodeStatus(connectResult);
+              setNodeUrl(nodeResult.nodeUrl);
+              localStorage.setItem("echo_node_url", nodeResult.nodeUrl);
+              localStorage.setItem("echo_web_node_url", nodeResult.nodeUrl);
+              setConnStatus("");
+              return true;
+            }
+          } else {
+            console.warn("[Auth] Mother Ship could not assign a node — no Echo Nodes online");
+          }
+        } else {
+          console.warn("[Auth] Mother Ship connection failed:", msResult.error || "unknown");
         }
+      } catch (e) {
+        console.warn("[Auth] Mother Ship attempt failed:", e.message);
       }
     }
 
-    throw new Error("Could not connect to any Echo Node. Check your internet connection or try again later.");
+    setConnStatus("");
+    throw new Error(
+      "Could not reach any Echo Node. " +
+      "Either:\n" +
+      "- Mother Ship is down (ws://35.208.81.221:6884)\n" +
+      "- No Echo Nodes are currently online\n" +
+      "- Your internet connection is unstable\n\n" +
+      "Go to 'Connect To Echo Node' and enter a node address manually, " +
+      "or try again later."
+    );
   };
 
   const doCreate = async () => {
@@ -228,20 +257,23 @@ export default function AuthScreen({ onLogin }) {
     if (pass !== pass2)    { setError("Passwords don't match."); return; }
     setError(""); setLoading(true);
     try {
-      // Ensure we have a real node connection (same as native flow)
+      // MUST connect to a real Echo Node before creating account
       if (!window?.Capacitor?.isNativePlatform?.()) {
         await ensureNodeConnection();
       }
 
+      // Check handle availability on the real node
       const avail = await p2pBridge.checkHandleAvailable({ handle });
       if (!avail.available) { setError(`@${handle} is already taken.`); setLoading(false); return; }
+
+      // Register on the real node — must succeed
       const result = await p2pBridge.setupProfile({ name, handle });
       if (result.success) {
         if (pass.length > 0) await savePassword(pass);
         setPendingUser({ name, handle, avatar:null, banner:null, userId:result.userId });
         setMode("storage");
       } else {
-        setError("Something went wrong. Try again.");
+        setError("Registration failed on node. Please try again.");
       }
     } catch(e) {
       const msg = e.message || "unknown";
@@ -255,7 +287,7 @@ export default function AuthScreen({ onLogin }) {
   const doSignIn = async () => {
     setError(""); setLoading(true);
     try {
-      // Ensure we have a real node connection (same as native flow)
+      // MUST connect to a real Echo Node before signing in
       if (!window?.Capacitor?.isNativePlatform?.()) {
         await ensureNodeConnection();
       }
@@ -265,7 +297,7 @@ export default function AuthScreen({ onLogin }) {
       } else {
         setError("No account found on this device. Create one first.");
       }
-    } catch(e) { setError("Could not sign in."); }
+    } catch(e) { setError("Could not sign in: " + (e.message || "Check your connection.")); }
     setLoading(false);
   };
 
@@ -285,7 +317,6 @@ export default function AuthScreen({ onLogin }) {
 
   /**
    * Auto-connect to Echo Node via Mother Ship.
-   * Used when user clicks "Connect Automatically" — no manual IP needed.
    */
   const doAutoConnect = async () => {
     setError(""); setNodeLoading(true);
@@ -294,13 +325,13 @@ export default function AuthScreen({ onLogin }) {
       setNodeLoading(false);
     } catch(e) {
       console.error("[Auth] Auto-connect error:", e);
-      setError(e.message || "Auto-connect failed. Try manual node setup below.");
+      setError(e.message || "Could not connect. Try manual node setup below.");
       setNodeLoading(false);
     }
   };
 
   const Back = () => (
-    <button onClick={() => { setMode("landing"); setError(""); }}
+    <button onClick={() => { setMode("landing"); setError(""); setConnStatus(""); }}
       style={{ background:"none", border:"none", cursor:"pointer", padding:0, marginBottom:24, alignSelf:"flex-start", WebkitTapHighlightColor:"transparent" }}>
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.text} strokeWidth="2" strokeLinecap="round">
         <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
@@ -334,7 +365,6 @@ export default function AuthScreen({ onLogin }) {
           onLogin(pendingUser);
         }}
         onBack={() => {
-          // If coming from signup, allow skip with P2P as default
           onLogin(pendingUser);
         }}
         showContinue={true}
@@ -347,7 +377,7 @@ export default function AuthScreen({ onLogin }) {
   // ── Loading ────────────────────────────────────────────────────────────────
   if (checking) return (
     <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", background:C.bg, flexDirection:"column", gap:16 }}>
-      <EchoLogo size={48}/><span style={{ color:C.muted, fontSize:14 }}>Loading…</span>
+      <EchoLogo size={48}/><span style={{ color:C.muted, fontSize:14 }}>Loading...</span>
     </div>
   );
 
@@ -374,7 +404,7 @@ export default function AuthScreen({ onLogin }) {
           color:"#000", fontWeight:800, fontSize:16, cursor:"pointer",
           opacity:loading?0.6:1, WebkitTapHighlightColor:"transparent",
           boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
-        }}>{loading ? "Unlocking…" : "Unlock"}</button>
+        }}>{loading ? "Unlocking..." : "Unlock"}</button>
       </div>
     </div>
   );
@@ -386,7 +416,7 @@ export default function AuthScreen({ onLogin }) {
         <LogoBlock small={false}/>
         <span style={{ color:C.text, fontSize:32, fontWeight:900, letterSpacing:-1.5, marginTop:8 }}>echo</span>
         <span style={{ color:C.muted, fontSize:14, textAlign:"center", maxWidth:260, lineHeight:1.6 }}>
-          Your Voice,Your Echo, peer to peer.<br/>No Servers. No Surveillance. No Ads.
+          Your Voice, Your Echo, peer to peer.<br/>No Servers. No Surveillance. No Ads.
         </span>
       </div>
       <div style={{ width:"100%" }}>
@@ -404,9 +434,9 @@ export default function AuthScreen({ onLogin }) {
           borderRadius:28, padding:"15px 0", color:C.text, fontWeight:700, fontSize:16,
           cursor:"pointer", opacity:loading?0.6:1, WebkitTapHighlightColor:"transparent",
         }}>
-          {loading ? "Checking…" : "Sign in on this device"}
+          {loading ? "Checking..." : "Sign in on this device"}
         </button>
-        {error && <p style={{ color:C.danger, fontSize:13, textAlign:"center", marginTop:10 }}>{error}</p>}
+        {error && <p style={{ color:C.danger, fontSize:13, textAlign:"center", marginTop:10, whiteSpace:"pre-line" }}>{error}</p>}
         <p style={{ color:C.muted, fontSize:11, textAlign:"center", marginTop:20, lineHeight:1.7 }}>
           Your identity is a cryptographic key.<br/>No email or password — ever.
         </p>
@@ -432,7 +462,7 @@ export default function AuthScreen({ onLogin }) {
       <LogoBlock small={true}/>
       <h2 style={{ color:C.text, fontSize:26, fontWeight:900, margin:"0 0 6px", textAlign:"center" }}>Connect To Echo Node</h2>
       <p style={{ color:C.muted, fontSize:13, margin:"0 0 20px", textAlign:"center", lineHeight:1.5 }}>
-        Web → Echo Mother Ship → Echo Node<br/>Your node is automatically assigned.
+        Web -> Echo Mother Ship -> Echo Node<br/>Your node is automatically assigned.
       </p>
 
       {/* Auto-connect button */}
@@ -443,8 +473,15 @@ export default function AuthScreen({ onLogin }) {
         opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
         boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
       }}>
-        {nodeLoading ? "Connecting via Mother Ship…" : "⚡ Connect Automatically"}
+        {nodeLoading ? (connStatus || "Connecting via Mother Ship...") : "Connect Automatically"}
       </button>
+
+      {/* Live status */}
+      {connStatus && nodeLoading && (
+        <div style={{ marginTop:-12, marginBottom:20, padding:12, background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, textAlign:"center" }}>
+          <span style={{ color:C.muted, fontSize:12 }}>{connStatus}</span>
+        </div>
+      )}
 
       {nodeStatus?.connected && (
         <div style={{ marginTop:-12, marginBottom:20, padding:14, background:C.surface, borderRadius:12, border:`1px solid ${C.green}`, textAlign:"center" }}>
@@ -462,13 +499,13 @@ export default function AuthScreen({ onLogin }) {
       </div>
 
       <AuthInput label="Node address (e.g. 192.168.1.100)" inputRef={nodeRef} />
-      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
+      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px", whiteSpace:"pre-line" }}>{error}</p>}
       <button onClick={doConnectNode} disabled={nodeLoading} style={{
         width:"100%", borderRadius:28, padding:"15px 0", marginTop:8,
         background:C.surface,
         color:C.text, fontWeight:700, fontSize:16, cursor:"pointer",
         opacity:nodeLoading?0.6:1, WebkitTapHighlightColor:"transparent",
-      }}>{nodeLoading ? "Connecting…" : "Connect Manually"}</button>
+      }}>{nodeLoading ? "Connecting..." : "Connect Manually"}</button>
 
       <button onClick={() => setMode("landing")} style={{
         background:"none", border:"none", cursor:"pointer", color:C.accent,
@@ -503,20 +540,25 @@ export default function AuthScreen({ onLogin }) {
         type={showPass ? "text" : "password"}
         autoComplete="new-password"
       />
-      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px" }}>{error}</p>}
+      {error && <p style={{ color:C.danger, fontSize:13, margin:"-8px 0 12px", whiteSpace:"pre-line" }}>{error}</p>}
+      {connStatus && (
+        <div style={{ padding:10, background:C.surface, borderRadius:8, border:`1px solid ${C.border}`, marginBottom:12, textAlign:"center" }}>
+          <span style={{ color:C.muted, fontSize:12 }}>{connStatus}</span>
+        </div>
+      )}
       <button onClick={doCreate} disabled={loading} style={{
         width:"100%", border:"none", borderRadius:28, padding:"15px 0", marginTop:8,
         background:`linear-gradient(90deg,${C.accentDark},${C.accent})`,
         color:"#000", fontWeight:800, fontSize:16, cursor:"pointer",
         opacity:loading?0.6:1, WebkitTapHighlightColor:"transparent",
         boxShadow:`0 4px 20px rgba(110,231,183,0.25)`,
-      }}>{loading ? "Creating account…" : "Create account"}</button>
+      }}>{loading ? (connStatus || "Creating account...") : "Create account"}</button>
       <div style={{ marginTop:24, padding:16, background:C.surface, borderRadius:12, border:`1px solid ${C.border}` }}>
         <p style={{ color:C.muted, fontSize:12, margin:0, lineHeight:1.8 }}>
-          <strong style={{ color:C.text }}>📱 Device account</strong><br/>
-          Your private key lives in this phone's secure enclave and never leaves it.
+          <strong style={{ color:C.text }}>Device account</strong><br/>
+          Your private key lives in this device's secure storage and never leaves it.
           Password (if set) is stored only on this device — never sent anywhere.<br/>
-          <span style={{ color:C.accent }}>Export a QR backup from profile settings to move to a new phone.</span>
+          <span style={{ color:C.accent }}>Export a QR backup from profile settings to move to a new device.</span>
         </p>
       </div>
       <button onClick={() => setMode("landing")} style={{
